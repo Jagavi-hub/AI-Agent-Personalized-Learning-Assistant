@@ -1,0 +1,1 @@
+CS601 Lecture Notes: Vanishing gradient occurs when backpropagating through saturating activation functions like Sigmoid where derivative is bounded by 0.25.

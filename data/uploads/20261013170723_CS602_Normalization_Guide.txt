@@ -1,0 +1,1 @@
+CS602 Lecture on Normalization: First Normal Form (1NF) eliminates repeating groups. Second Normal Form (2NF) eliminates partial functional dependencies where non-key attributes depend on subset of primary key. Third Normal Form (3NF) eliminates transitive dependencies.

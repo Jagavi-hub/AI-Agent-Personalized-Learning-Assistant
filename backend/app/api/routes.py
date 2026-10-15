@@ -29,7 +29,8 @@ from app.schemas.schemas import (
     ForgotPasswordRequest, ResetPasswordRequest, OnboardingRequest,
     StudentOut, StudentUpdate, SubjectOut, GoalCreate, GoalUpdate, GoalOut,
     ActivityOut, QuizGenerateRequest, QuizOut, QuizSubmitRequest, QuizSubmitResponse,
-    QuizAttemptOut, DocumentOut, DocumentSearchResult, KnowledgeSearchRequest,
+    QuizAttemptOut, QuizMistakeExplanationRequest, QuizMistakeExplanationResponse,
+    DocumentOut, DocumentSearchResult, KnowledgeSearchRequest,
     ChatRequest, ChatResponse, ConversationOut, RecommendationOut, RecommendationUpdate,
     StudyPlanOut, StudyTaskOut, StudyPlanGenerateRequest, StudyTaskCreate, StudyTaskUpdate,
     ProgressAnalyticsOut, FeedbackCreate, FeedbackOut
@@ -341,10 +342,41 @@ def update_student_profile(
 
     return format_student_out(current_user)
 
-# ----------------- Subjects -----------------
+# ----------------- Subjects & Courses -----------------
 @api_router.get("/subjects", response_model=List[SubjectOut], tags=["Curriculum"])
+@api_router.get("/courses", response_model=List[SubjectOut], tags=["Curriculum"])
 def list_subjects(db: Session = Depends(get_db)):
-    return db.query(Subject).all()
+    from app.core.init_db import sync_orphaned_documents
+    sync_orphaned_documents(db)
+    return db.query(Subject).order_by(Subject.id.asc()).all()
+
+@api_router.get("/courses/{course_id}/topics", tags=["Curriculum"])
+def get_course_topics(course_id: int, db: Session = Depends(get_db)):
+    from app.core.init_db import sync_orphaned_documents
+    sync_orphaned_documents(db)
+    subject = db.query(Subject).filter(Subject.id == course_id).first()
+    if not subject:
+        raise HTTPException(status_code=404, detail="Course not found.")
+    return {
+        "course_id": subject.id,
+        "course_name": subject.name,
+        "course_code": subject.code,
+        "document_filename": subject.document_filename,
+        "document_filenames": subject.document_filenames,
+        "status": subject.status,
+        "num_chunks": subject.num_chunks,
+        "topics": subject.topics,
+        "documents": [
+            {
+                "id": doc.id,
+                "filename": doc.filename,
+                "num_chunks": doc.num_chunks,
+                "status": doc.status,
+                "extracted_topics": doc.topics_list
+            }
+            for doc in subject.documents
+        ]
+    }
 
 # ----------------- Learning Activities -----------------
 @api_router.get("/student/activities", response_model=List[ActivityOut], tags=["History"])
@@ -365,13 +397,24 @@ def send_chat_to_agent(
 ):
     if not req.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be blank.")
-    
+
+    # Strictly enforce student ownership of conversation
+    if req.conversation_id:
+        existing_conv = db.query(Conversation).filter(Conversation.id == req.conversation_id).first()
+        if existing_conv and existing_conv.student_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Conversation belongs to another student."
+            )
+
     result = agent_orchestrator.process_student_request(
         db=db,
         student_id=current_user.id,
         message=req.message,
         conversation_id=req.conversation_id,
-        action_override=req.action_override
+        action_override=req.action_override,
+        subject_id=req.subject_id,
+        subject_code=req.subject_code
     )
     return result
 
@@ -452,14 +495,18 @@ def generate_quiz(
     current_user: Student = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    quiz = quiz_service.generate_quiz(
-        db=db,
-        student_id=current_user.id,
-        topic=req.topic,
-        difficulty=req.difficulty,
-        num_questions=req.num_questions,
-        subject_id=req.subject_id
-    )
+    try:
+        quiz = quiz_service.generate_quiz(
+            db=db,
+            student_id=current_user.id,
+            topic=req.topic,
+            difficulty=req.difficulty,
+            num_questions=req.num_questions,
+            subject_id=req.subject_id,
+            document_id=req.document_id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     q_out = []
     for q in quiz.questions:
         q_out.append({
@@ -599,6 +646,47 @@ def review_quiz_attempt(
         "answers": results
     }
 
+@api_router.post("/quiz/explain-mistakes", response_model=QuizMistakeExplanationResponse, tags=["Quiz & Practice"])
+def explain_quiz_mistakes(
+    req: QuizMistakeExplanationRequest,
+    current_user: Student = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Synthesizes pedagogical explanations for incorrect answers on a completed quiz.
+    - Grounded in the course syllabus material.
+    - Never recalculates or modifies the recorded score.
+    """
+    try:
+        return quiz_service.explain_quiz_mistakes(
+            db=db,
+            student_id=current_user.id,
+            quiz_id=req.quiz_id,
+            attempt_id=req.attempt_id,
+            subject_id=req.subject_id,
+            mistakes_input=req.mistakes
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.get("/quiz/attempts/{attempt_id}/explain-mistakes", response_model=QuizMistakeExplanationResponse, tags=["Quiz & Practice"])
+def explain_quiz_attempt_mistakes(
+    attempt_id: int,
+    current_user: Student = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Synthesizes pedagogical explanations for incorrect answers from a historical attempt.
+    """
+    try:
+        return quiz_service.explain_quiz_mistakes(
+            db=db,
+            student_id=current_user.id,
+            attempt_id=attempt_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 # ----------------- Knowledge Base & Retrieval -----------------
 @api_router.get("/knowledge/documents", response_model=List[DocumentOut], tags=["Knowledge Base"])
 def list_documents(
@@ -606,25 +694,124 @@ def list_documents(
     db: Session = Depends(get_db)
 ):
     return db.query(KnowledgeDocument).filter(
-        KnowledgeDocument.student_id == current_user.id
+        (KnowledgeDocument.student_id == current_user.id) | (KnowledgeDocument.subject_id.isnot(None))
     ).order_by(KnowledgeDocument.upload_date.desc()).all()
 
 @api_router.post("/knowledge/upload", response_model=DocumentOut, tags=["Knowledge Base"])
 def upload_document(
     file: UploadFile = File(...),
+    subject_id: Optional[int] = Form(None),
+    new_course_name: Optional[str] = Form(None),
+    new_course_code: Optional[str] = Form(None),
     current_user: Student = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    filename = file.filename or "uploaded_file"
+    raw_name = file.filename or "uploaded_file"
+    # Prevent path traversal attacks
+    filename = Path(raw_name).name
     ext = filename.split(".")[-1].lower() if "." in filename else ""
     if ext not in ["pdf", "txt"]:
         raise HTTPException(status_code=400, detail="Only PDF and TXT files are accepted.")
 
+    # Write file safely
     save_path = settings.UPLOAD_DIR / f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
     with open(save_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
     file_size = os.path.getsize(save_path)
+
+    # Validate file size limits (non-empty and <= 20MB)
+    if file_size == 0:
+        if os.path.exists(save_path):
+            os.remove(save_path)
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    max_size_bytes = 20 * 1024 * 1024  # 20MB
+    if file_size > max_size_bytes:
+        if os.path.exists(save_path):
+            os.remove(save_path)
+        raise HTTPException(status_code=400, detail="File size exceeds the 20MB limit.")
+
+    # 1. User wants to create a new course or link to existing by name/code
+    if new_course_name and new_course_name.strip():
+        c_name = new_course_name.strip()
+        c_code = new_course_code.strip() if (new_course_code and new_course_code.strip()) else None
+
+        # Check if course with this name or code already exists (case-insensitive) to strictly prevent duplicates
+        existing_subject = db.query(Subject).filter(
+            (Subject.name.ilike(c_name)) |
+            ((Subject.code.ilike(c_code)) if c_code else False)
+        ).first()
+
+        if existing_subject:
+            subject_id = existing_subject.id
+        else:
+            generated_code = c_code if c_code else f"CRS{db.query(Subject).count() + 501}"
+            new_subject = Subject(
+                name=c_name,
+                code=generated_code,
+                document_filename=filename,
+                department=current_user.department or "AI & Data Science (AI&DS)",
+                semester=current_user.semester or "6th Semester",
+                description=f"Curriculum materials and syllabus for {c_name}.",
+                credits=4
+            )
+            db.add(new_subject)
+            db.commit()
+            db.refresh(new_subject)
+            subject_id = new_subject.id
+
+    # 2. Auto-infer subject_id from filename if still omitted
+    if not subject_id:
+        fn_lower = filename.lower()
+        if "ml" in fn_lower or "machine" in fn_lower:
+            ml_subj = db.query(Subject).filter(Subject.name.ilike("%Machine Learning%")).first()
+            if ml_subj: subject_id = ml_subj.id
+        elif "ai" in fn_lower or "artificial" in fn_lower:
+            ai_subj = db.query(Subject).filter(Subject.name.ilike("%Artificial Intelligence%")).first()
+            if ai_subj: subject_id = ai_subj.id
+        elif "cn" in fn_lower or "network" in fn_lower:
+            cn_subj = db.query(Subject).filter(Subject.name.ilike("%Computer Networks%")).first()
+            if cn_subj: subject_id = cn_subj.id
+        elif "cc" in fn_lower or "cloud" in fn_lower:
+            cc_subj = db.query(Subject).filter(Subject.name.ilike("%Cloud Computing%")).first()
+            if cc_subj: subject_id = cc_subj.id
+        elif "bd" in fn_lower or "big data" in fn_lower:
+            bd_subj = db.query(Subject).filter(Subject.name.ilike("%Big Data%")).first()
+            if not bd_subj:
+                bd_subj = Subject(
+                    code="22AI602",
+                    name="Big Data Analytics",
+                    document_filename=filename,
+                    department=current_user.department or "AI & Data Science (AI&DS)",
+                    semester=current_user.semester or "6th Semester",
+                    description="Big data architecture, 5 V's, Hadoop HDFS, MapReduce, Apache Spark, NoSQL data stores, and real-time streaming analytics.",
+                    credits=4
+                )
+                db.add(bd_subj)
+                db.commit()
+                db.refresh(bd_subj)
+            subject_id = bd_subj.id
+        else:
+            for s in db.query(Subject).all():
+                if s.name.lower() in fn_lower or s.code.lower() in fn_lower:
+                    subject_id = s.id
+                    break
+
+    # Duplicate upload detection for same student
+    existing_doc = db.query(KnowledgeDocument).filter(
+        KnowledgeDocument.student_id == current_user.id,
+        KnowledgeDocument.filename == filename,
+        KnowledgeDocument.file_size == file_size,
+        KnowledgeDocument.status == "processed"
+    ).first()
+    if existing_doc and existing_doc.num_chunks > 0:
+        if subject_id and not existing_doc.subject_id:
+            existing_doc.subject_id = subject_id
+            db.commit()
+        if os.path.exists(save_path):
+            os.remove(save_path)
+        return existing_doc
 
     doc = retrieval_engine.process_and_store_document(
         db=db,
@@ -632,14 +819,15 @@ def upload_document(
         filename=filename,
         file_path=save_path,
         file_size=file_size,
-        file_type=ext
+        file_type=ext,
+        subject_id=subject_id
     )
 
     act = LearningActivity(
         student_id=current_user.id,
         activity_type="document_uploaded",
         title=f"Uploaded Material: {filename}",
-        description=f"Indexed {doc.num_chunks} text chunks for semantic retrieval.",
+        description=f"Indexed {doc.num_chunks} text chunks for course-grounded semantic retrieval.",
         timestamp=datetime.utcnow()
     )
     db.add(act)
@@ -666,6 +854,8 @@ def delete_document(
     except Exception:
         pass
 
+    # Cleanly remove chunks and document record
+    db.query(DocumentChunk).filter(DocumentChunk.document_id == doc.id).delete()
     db.delete(doc)
     db.commit()
     return {"message": "Document and associated chunks removed successfully."}
@@ -680,7 +870,8 @@ def search_knowledge_base(
         db=db,
         query=req.query,
         student_id=current_user.id,
-        top_k=req.top_k
+        top_k=req.top_k,
+        subject_id=req.subject_id
     )
     return results
 
@@ -740,54 +931,54 @@ def get_resource_recommendations(
     curated = [
         {
             "id": 1,
-            "title": "Stanford CS229: Machine Learning Lecture Notes",
-            "type": "Lecture Notes",
-            "source": "Stanford University",
-            "topic": "Backpropagation & Gradient Descent",
-            "url": "https://cs229.stanford.edu/notes2022fall/cs229-notes1.pdf",
-            "reason": "Comprehensive mathematical derivation of the Chain Rule and gradient backpropagation."
+            "title": "Machine Learning (Tom Mitchell) — Chapter 1: Introduction",
+            "type": "Curriculum Textbook",
+            "source": "McGraw-Hill Academic",
+            "topic": "Well-Posed Learning Problems & LMS",
+            "url": "https://www.cs.cmu.edu/~tom/mlbook.html",
+            "reason": "Direct reference text for 22AI503 Unit 1: Definition of learning, Checkers learning system, and LMS algorithm."
         },
         {
             "id": 2,
-            "title": "PyTorch Neural Networks Tutorial",
-            "type": "Interactive Guide",
-            "source": "PyTorch Official",
-            "topic": "Backpropagation & Neural Networks",
-            "url": "https://pytorch.org/tutorials/beginner/blitz/neural_networks_tutorial.html",
-            "reason": "Visual, code-first implementation of torch.autograd backward passes."
+            "title": "Artificial Intelligence: A Modern Approach (Russell & Norvig)",
+            "type": "Standard Text",
+            "source": "UC Berkeley AI Lab",
+            "topic": "Turing Test & Rational Agents",
+            "url": "https://aima.cs.berkeley.edu/",
+            "reason": "Direct reference text for 21CB603 Unit 1: Foundations of AI, PEAS framework, and rational agent architectures."
         },
         {
             "id": 3,
-            "title": "Database Normalization Principles: 1NF to BCNF",
-            "type": "Reference Guide",
-            "source": "GeeksforGeeks Academic",
-            "topic": "Database Normalization",
-            "url": "https://www.geeksforgeeks.org/introduction-of-database-normalization/",
-            "reason": "Direct examples explaining functional dependency preservation and candidate keys."
+            "title": "Computer Networks: A Systems Approach (Peterson & Davie)",
+            "type": "Open Textbook",
+            "source": "Systems Approach LLC",
+            "topic": "Network Architecture & Performance",
+            "url": "https://book.systemsapproach.org/",
+            "reason": "Direct reference text for 22CS502 Unit 1: Hourglass architecture, latency decomposition, and Delay x Bandwidth product."
         },
         {
             "id": 4,
-            "title": "MIT 6.006: Introduction to Algorithms (Dijkstra)",
-            "type": "Course Material",
-            "source": "MIT OpenCourseWare",
-            "topic": "Graph Algorithms",
-            "url": "https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-spring-2020/",
-            "reason": "Complete proofs for non-negative shortest path complexity and min-heap implementations."
+            "title": "NIST SP 800-145: The NIST Definition of Cloud Computing",
+            "type": "Standards Document",
+            "source": "National Institute of Standards & Technology",
+            "topic": "Essential Characteristics & Service Models",
+            "url": "https://csrc.nist.gov/publications/detail/sp/800-145/final",
+            "reason": "Direct reference standard for 22IT402 Unit 1: On-demand self-service, IaaS, PaaS, SaaS, and deployment models."
         }
     ]
 
     docs = db.query(KnowledgeDocument).filter(
-        KnowledgeDocument.student_id == current_user.id
+        (KnowledgeDocument.student_id == current_user.id) | (KnowledgeDocument.subject_id.isnot(None))
     ).all()
     internal_docs = [
         {
             "id": f"internal_{d.id}",
             "title": d.filename,
-            "type": "Uploaded Course Document",
-            "source": "Course Knowledge Base",
-            "topic": "Course Materials",
+            "type": "Course Material" if d.subject_id else "Uploaded Note",
+            "source": d.course_name or "Curriculum Knowledge Base",
+            "topic": d.course_name or "Course Materials",
             "url": f"/knowledge-base",
-            "reason": f"Indexed internally with {d.num_chunks} searchable chunks for active RAG."
+            "reason": f"Indexed internally with {d.num_chunks} searchable chunks for course-grounded RAG."
         }
         for d in docs
     ]

@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timedelta, timezone
+from sqlalchemy.orm import Session
 from app.core.database import Base, engine, SessionLocal
 from app.core.security import hash_password
 from app.models.entities import (
@@ -109,17 +110,137 @@ def init_db():
                 student.is_onboarded = True
                 db.commit()
 
-        # Subjects
-        if db.query(Subject).count() == 0:
-            print("[init_db] Seeding initial academic subjects...")
-            subjects = [
-                Subject(code="CS601", name="Deep Learning & Neural Networks", department="AI & Data Science (AI&DS)", semester="6th Semester", description="Foundations of deep architectures, backprop, CNNs, transformers.", credits=4),
-                Subject(code="CS602", name="Database Management Systems", department="AI & Data Science (AI&DS)", semester="6th Semester", description="Relational algebra, normalization (1NF-BCNF), transactions, and indexing.", credits=4),
-                Subject(code="CS603", name="Design & Analysis of Algorithms", department="AI & Data Science (AI&DS)", semester="6th Semester", description="Divide and conquer, greedy methods, dynamic programming, and graph algorithms.", credits=4),
-                Subject(code="CS604", name="Operating Systems Principles", department="AI & Data Science (AI&DS)", semester="6th Semester", description="Processes, threads, CPU scheduling, synchronization, and virtual memory.", credits=3)
-            ]
-            db.bulk_save_objects(subjects)
+        # Safe column migration check
+        try:
+            with engine.connect() as conn:
+                res = conn.exec_driver_sql("PRAGMA table_info(knowledge_documents)").fetchall()
+                cols = [r[1] for r in res]
+                if "subject_id" not in cols:
+                    conn.exec_driver_sql("ALTER TABLE knowledge_documents ADD COLUMN subject_id INTEGER")
+                if "extracted_topics" not in cols:
+                    conn.exec_driver_sql("ALTER TABLE knowledge_documents ADD COLUMN extracted_topics TEXT DEFAULT '[]'")
+                s_res = conn.exec_driver_sql("PRAGMA table_info(subjects)").fetchall()
+                s_cols = [r[1] for r in s_res]
+                if "document_filename" not in s_cols:
+                    conn.exec_driver_sql("ALTER TABLE subjects ADD COLUMN document_filename VARCHAR(255)")
+        except Exception as e:
+            print(f"[init_db] Column check: {e}")
+
+        # The 4 Core Academic Courses
+        course_definitions = [
+            {
+                "id": 1,
+                "code": "22AI503",
+                "name": "Machine Learning",
+                "document_filename": "ML U1.1(2).pdf",
+                "department": "AI & Data Science (AI&DS)",
+                "semester": "6th Semester",
+                "description": "Supervised, unsupervised, reinforcement learning, well-posed learning problems, designing learning systems.",
+                "credits": 4
+            },
+            {
+                "id": 2,
+                "code": "21CB603",
+                "name": "Artificial Intelligence",
+                "document_filename": "AI 1.1.pdf",
+                "department": "AI & Data Science (AI&DS)",
+                "semester": "6th Semester",
+                "description": "Foundations of AI, Turing test, rationality, agent architectures and PEAS environments.",
+                "credits": 4
+            },
+            {
+                "id": 3,
+                "code": "22CS502",
+                "name": "Computer Networks",
+                "document_filename": "CN 1.1.pdf",
+                "department": "AI & Data Science (AI&DS)",
+                "semester": "6th Semester",
+                "description": "Data communications, transmission media, network criteria, topologies (mesh, star, bus, ring), LAN/WAN.",
+                "credits": 4
+            },
+            {
+                "id": 4,
+                "code": "22IT402",
+                "name": "Cloud Computing",
+                "document_filename": "CC 1.1.pdf",
+                "department": "AI & Data Science (AI&DS)",
+                "semester": "6th Semester",
+                "description": "NIST cloud characteristics, service models (IaaS, PaaS, SaaS), deployment models (public, private, hybrid).",
+                "credits": 3
+            }
+        ]
+
+        for c_def in course_definitions:
+            subj = db.query(Subject).filter(Subject.id == c_def["id"]).first()
+            if not subj:
+                subj = Subject(
+                    id=c_def["id"],
+                    code=c_def["code"],
+                    name=c_def["name"],
+                    document_filename=c_def["document_filename"],
+                    department=c_def["department"],
+                    semester=c_def["semester"],
+                    description=c_def["description"],
+                    credits=c_def["credits"]
+                )
+                db.add(subj)
+            else:
+                subj.code = c_def["code"]
+                subj.name = c_def["name"]
+                subj.document_filename = c_def["document_filename"]
+                subj.department = c_def["department"]
+                subj.semester = c_def["semester"]
+                subj.description = c_def["description"]
+                subj.credits = c_def["credits"]
+        db.commit()
+
+        # Update student enrolled subjects to the 4 courses
+        if student:
+            student.enrolled_subjects = json.dumps([c["name"] for c in course_definitions])
             db.commit()
+
+        # Automatically index and link the 4 source PDFs to their courses
+        from pathlib import Path
+        from app.retrieval.engine import retrieval_engine
+        root_dir = Path(__file__).resolve().parent.parent.parent.parent
+        materials_dir = root_dir / "data" / "course_materials"
+        if not materials_dir.exists():
+            materials_dir = Path("data/course_materials").resolve()
+
+        if materials_dir.exists():
+            for c_def in course_definitions:
+                filename = c_def["document_filename"]
+                p = materials_dir / filename
+                if not p.exists() and filename == "ML U1.1(2).pdf":
+                    alt_p = materials_dir / "ML U1.1.pdf"
+                    if alt_p.exists():
+                        p = alt_p
+                if p.exists():
+                    existing_doc = db.query(KnowledgeDocument).filter(
+                        (KnowledgeDocument.filename == filename) | (KnowledgeDocument.filename == p.name)
+                    ).first()
+                    if not existing_doc or existing_doc.num_chunks == 0:
+                        try:
+                            doc = retrieval_engine.process_and_store_document(
+                                db=db,
+                                student_id=student.id if student else 1,
+                                filename=filename,
+                                file_path=p,
+                                file_size=p.stat().st_size,
+                                file_type="pdf",
+                                subject_id=c_def["id"]
+                            )
+                            print(f"[init_db] Indexed course PDF: {filename} -> {c_def['name']} ({doc.num_chunks} chunks)")
+                        except Exception as e:
+                            print(f"[init_db] Error indexing {filename}: {e}")
+                    else:
+                        existing_doc.subject_id = c_def["id"]
+                        if not existing_doc.extracted_topics or existing_doc.extracted_topics == "[]":
+                            pages = retrieval_engine.extract_text_from_pdf(p)
+                            existing_doc.extracted_topics = json.dumps(
+                                retrieval_engine.extract_topics_from_text(pages, filename)
+                            )
+                        db.commit()
 
         # Learning Goals for Student 1
         if db.query(LearningGoal).filter(LearningGoal.student_id == 1).count() == 0:
@@ -268,10 +389,89 @@ def init_db():
             db.add_all([c1, c2, c3])
             db.commit()
 
+        sync_orphaned_documents(db)
+
         print("[init_db] Database initialized with Argon2 credentials, project team, and study plans!")
 
     finally:
         db.close()
+
+def sync_orphaned_documents(db: Session):
+    """
+    Ensure every uploaded or seeded document is linked to an appropriate course Subject
+    and has extracted topics populated. If a document belongs to a new course (e.g. Big Data),
+    safely create the Subject if it doesn't already exist. Strictly prevents duplicates.
+    """
+    import json
+    from pathlib import Path
+    from app.models.entities import KnowledgeDocument, Subject, DocumentChunk
+    from app.retrieval.engine import retrieval_engine
+
+    # Ensure Big Data Analytics subject exists if any Big Data document is present
+    bd_doc = db.query(KnowledgeDocument).filter(
+        KnowledgeDocument.filename.ilike("%bd%") | KnowledgeDocument.filename.ilike("%big data%")
+    ).first()
+    if bd_doc:
+        bd_subj = db.query(Subject).filter(
+            (Subject.name.ilike("%Big Data%")) | (Subject.code.ilike("22AI602"))
+        ).first()
+        if not bd_subj:
+            bd_subj = Subject(
+                code="22AI602",
+                name="Big Data Analytics",
+                document_filename=bd_doc.filename,
+                department="AI & Data Science (AI&DS)",
+                semester="6th Semester",
+                description="Big data architecture, 5 V's, Hadoop HDFS, MapReduce, Apache Spark, NoSQL data stores, and real-time streaming analytics.",
+                credits=4
+            )
+            db.add(bd_subj)
+            db.commit()
+            db.refresh(bd_subj)
+
+    # Link orphaned documents to existing or newly created subjects
+    orphaned_docs = db.query(KnowledgeDocument).filter(KnowledgeDocument.subject_id.is_(None)).all()
+    for doc in orphaned_docs:
+        fn_l = doc.filename.lower()
+        matched_subj = None
+        if "ml" in fn_l or "machine" in fn_l or "backpropagation" in fn_l or "cs601" in fn_l:
+            matched_subj = db.query(Subject).filter(Subject.name.ilike("%Machine Learning%")).first()
+        elif "ai" in fn_l or "artificial" in fn_l or "21cb603" in fn_l:
+            matched_subj = db.query(Subject).filter(Subject.name.ilike("%Artificial Intelligence%")).first()
+        elif "cn" in fn_l or "network" in fn_l or "22cs502" in fn_l:
+            matched_subj = db.query(Subject).filter(Subject.name.ilike("%Computer Networks%")).first()
+        elif "cc" in fn_l or "cloud" in fn_l or "22it402" in fn_l:
+            matched_subj = db.query(Subject).filter(Subject.name.ilike("%Cloud Computing%")).first()
+        elif "bd" in fn_l or "big data" in fn_l or "22ai602" in fn_l:
+            matched_subj = db.query(Subject).filter(Subject.name.ilike("%Big Data%")).first()
+
+        if matched_subj:
+            doc.subject_id = matched_subj.id
+
+    # Populate extracted_topics if empty or default fallback
+    all_docs = db.query(KnowledgeDocument).all()
+    for doc in all_docs:
+        if not doc.extracted_topics or doc.extracted_topics in ["[]", '["Foundational Principles", "Architectural Overview", "Key Implementations & Concepts"]']:
+            try:
+                p = Path(doc.file_path)
+                if not p.exists():
+                    for search_dir in ["data/course_materials", "data/uploads"]:
+                        alt_p = Path(search_dir) / doc.filename
+                        if alt_p.exists():
+                            p = alt_p
+                            break
+                if p.exists():
+                    if doc.file_type == "pdf":
+                        pages = retrieval_engine.extract_text_from_pdf(p)
+                    else:
+                        pages = retrieval_engine.extract_text_from_txt(p)
+                    new_topics = retrieval_engine.extract_topics_from_text(pages, doc.filename)
+                    if new_topics:
+                        doc.extracted_topics = json.dumps(new_topics)
+            except Exception as e:
+                print(f"[sync_orphaned_documents] Topic extraction note for {doc.filename}: {e}")
+
+    db.commit()
 
 if __name__ == "__main__":
     init_db()

@@ -1,4 +1,4 @@
-﻿node_modules/
+node_modules/
 dist/
 build/
 .venv/
@@ -11,3 +11,17 @@ __pycache__/
 !.env.sample
 .DS_Store
 Thumbs.db
+
+# Databases (preserve student accounts, credentials, and quiz attempts locally)
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploaded artifacts from test runs (keep directory structure via .gitkeep)
+data/uploads/*
+!data/uploads/.gitkeep
+
+# Test & coverage caches
+.pytest_cache/
+.coverage
+htmlcov/

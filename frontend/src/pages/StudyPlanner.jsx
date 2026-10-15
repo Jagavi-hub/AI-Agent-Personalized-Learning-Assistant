@@ -20,20 +20,21 @@ import { useStudent } from '../context/StudentContext';
 export default function StudyPlanner() {
   const { profile, showNotification } = useStudent();
   const [plans, setPlans] = useState([]);
+  const [subjects, setSubjects] = useState([]);
   const [activePlan, setActivePlan] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // Generate Plan modal / form state
   const [showGenerateModal, setShowGenerateModal] = useState(false);
-  const [planTitle, setPlanTitle] = useState('Midterm Sprint: Deep Learning & DBMS');
-  const [selectedSubject, setSelectedSubject] = useState('Deep Learning & Neural Networks');
-  const [targetDate, setTargetDate] = useState('Oct 28, 2026');
+  const [planTitle, setPlanTitle] = useState('Adaptive Sprint: Machine Learning');
+  const [selectedSubject, setSelectedSubject] = useState('Machine Learning');
+  const [targetDate, setTargetDate] = useState('Nov 15, 2026');
   const [availableHours, setAvailableHours] = useState(14);
   const [generating, setGenerating] = useState(false);
 
   // New manual task modal state
   const [showTaskModal, setShowTaskModal] = useState(false);
-  const [taskTopic, setTaskTopic] = useState('Backpropagation');
+  const [taskTopic, setTaskTopic] = useState('Learning Systems Design');
   const [taskDesc, setTaskDesc] = useState('');
   const [taskDay, setTaskDay] = useState('Day 1 (Mon)');
   const [taskMinutes, setTaskMinutes] = useState(45);
@@ -46,9 +47,17 @@ export default function StudyPlanner() {
   const loadStudyPlans = async () => {
     try {
       setLoading(true);
-      const data = await api.getStudyPlans();
-      setPlans(data);
-      if (data.length > 0) {
+      const [data, subjs] = await Promise.all([
+        api.getStudyPlans(),
+        api.getSubjects().catch(() => []),
+      ]);
+      setPlans(data || []);
+      setSubjects(subjs || []);
+      if (subjs && subjs.length > 0) {
+        setSelectedSubject(subjs[0].name);
+        setPlanTitle(`Adaptive Sprint: ${subjs[0].name}`);
+      }
+      if (data && data.length > 0) {
         setActivePlan(data[0]);
       }
     } catch (err) {
@@ -390,12 +399,25 @@ export default function StudyPlanner() {
                 <select
                   className="input-field"
                   value={selectedSubject}
-                  onChange={(e) => setSelectedSubject(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedSubject(e.target.value);
+                    setPlanTitle(`Adaptive Sprint: ${e.target.value}`);
+                  }}
                 >
-                  <option value="Deep Learning & Neural Networks">Deep Learning & Neural Networks</option>
-                  <option value="Database Management Systems">Database Management Systems</option>
-                  <option value="Design & Analysis of Algorithms">Design & Analysis of Algorithms</option>
-                  <option value="Operating Systems Principles">Operating Systems Principles</option>
+                  {subjects.length > 0 ? (
+                    subjects.map((s) => (
+                      <option key={s.id} value={s.name}>
+                        {s.code}: {s.name}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="Machine Learning">22AI503: Machine Learning</option>
+                      <option value="Artificial Intelligence">21CB603: Artificial Intelligence</option>
+                      <option value="Computer Networks">22CS502: Computer Networks</option>
+                      <option value="Cloud Computing">22IT402: Cloud Computing</option>
+                    </>
+                  )}
                 </select>
               </div>
 

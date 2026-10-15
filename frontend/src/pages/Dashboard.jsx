@@ -11,6 +11,10 @@ import {
   BrainCircuit,
   Clock,
   Compass,
+  Calendar,
+  Users,
+  CheckSquare,
+  FileText,
 } from 'lucide-react';
 import { api } from '../services/api';
 import { useStudent } from '../context/StudentContext';
@@ -21,20 +25,23 @@ export default function Dashboard() {
   const [analytics, setAnalytics] = useState(null);
   const [recommendations, setRecommendations] = useState([]);
   const [subjects, setSubjects] = useState([]);
+  const [studyPlans, setStudyPlans] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function loadDashboardData() {
       try {
         setLoading(true);
-        const [analyticsData, recsData, subjData] = await Promise.all([
+        const [analyticsData, recsData, subjData, plansData] = await Promise.all([
           api.getProgressAnalytics(),
           api.getRecommendations(),
           api.getSubjects(),
+          api.getStudyPlans().catch(() => []),
         ]);
         setAnalytics(analyticsData);
         setRecommendations(recsData);
         setSubjects(subjData);
+        setStudyPlans(plansData);
       } catch (err) {
         console.error('Failed to load dashboard:', err);
       } finally {
@@ -328,55 +335,244 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Right: Enrolled Subjects */}
-        <div className="card">
+        {/* Right: Enrolled Academic Courses */}
+        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="card-header">
             <div>
               <div className="card-title">
                 <BookOpen size={18} color="var(--primary)" />
-                Enrolled Academic Subjects
+                Core Academic Courses ({subjects.length} Available)
               </div>
-              <div className="card-desc">Semester 6 curriculum & syllabus coverage</div>
+              <div className="card-desc">Active semester curriculum powered by authentic syllabus materials</div>
             </div>
             <Link to="/my-learning" style={{ fontSize: '0.8125rem', color: 'var(--primary)', textDecoration: 'none', fontWeight: 500 }}>
               Curriculum Details
             </Link>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {subjects.map((subj) => (
-              <div
-                key={subj.id}
-                style={{
-                  padding: '0.875rem 1rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--bg-surface-hover)',
-                  border: '1px solid var(--border)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                }}
-              >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span className="badge badge-neutral">{subj.code}</span>
-                    <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                      {subj.name}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.85rem',
+              maxHeight: '560px',
+              overflowY: 'auto',
+              paddingRight: '4px',
+            }}
+          >
+            {subjects.map((subj) => {
+              const docCount = subj.documents?.length || (subj.document_filename ? 1 : 0);
+              const docLabel =
+                docCount > 1
+                  ? `${docCount} Materials: ${subj.documents.map((d) => d.filename).join(', ')}`
+                  : subj.document_filename || subj.documents?.[0]?.filename || 'Curriculum Material';
+
+              return (
+                <div
+                  key={subj.id}
+                  style={{
+                    padding: '1rem',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'var(--bg-surface-hover)',
+                    border: '1px solid var(--border)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span className="badge badge-primary">{subj.code}</span>
+                      <span style={{ fontSize: '0.925rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                        {subj.name}
+                      </span>
+                    </div>
+                    <span
+                      className={`badge ${subj.num_chunks > 0 ? 'badge-success' : 'badge-warning'}`}
+                      style={{ fontSize: '0.7rem' }}
+                    >
+                      ● {subj.num_chunks || 0} Chunks Indexed
                     </span>
                   </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                    {subj.credits} Credits • {subj.semester}
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', maxWidth: '75%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={docLabel}>
+                      <FileText size={13} color="var(--primary)" style={{ flexShrink: 0 }} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        Source: <strong>{docLabel}</strong>
+                      </span>
+                    </div>
+                    <span>{subj.credits} Credits • {subj.semester}</span>
+                  </div>
+
+                  {subj.topics && subj.topics.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.2rem' }}>
+                      {subj.topics.slice(0, 3).map((top, idx) => (
+                        <span
+                          key={idx}
+                          style={{
+                            fontSize: '0.6875rem',
+                            padding: '0.15rem 0.45rem',
+                            borderRadius: '4px',
+                            backgroundColor: 'var(--bg-surface)',
+                            border: '1px solid var(--border)',
+                            color: 'var(--text-muted)',
+                          }}
+                        >
+                          {top}
+                        </span>
+                      ))}
+                      {subj.topics.length > 3 && (
+                        <span style={{ fontSize: '0.6875rem', color: 'var(--text-light)', alignSelf: 'center' }}>
+                          +{subj.topics.length - 3} more
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem' }}>
+                    <button
+                      onClick={() => navigate(`/assistant?subject=${subj.id}`)}
+                      className="btn btn-sm btn-primary"
+                      style={{ flex: 1, padding: '0.4rem 0.5rem', fontSize: '0.75rem' }}
+                    >
+                      <Sparkles size={12} />
+                      Ask AI Tutor
+                    </button>
+                    <button
+                      onClick={() => navigate(`/quiz?subject=${subj.id}`)}
+                      className="btn btn-sm btn-secondary"
+                      style={{ flex: 1, padding: '0.4rem 0.5rem', fontSize: '0.75rem' }}
+                    >
+                      <GraduationCap size={12} />
+                      Practice Quiz
+                    </button>
                   </div>
                 </div>
+              );
+            })}
 
-                <button
-                  onClick={() => navigate('/quiz')}
-                  className="btn btn-sm btn-secondary"
-                >
-                  Quiz
-                </button>
+            {subjects.length === 0 && !loading && (
+              <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                No courses found. Visit Knowledge Base to upload curriculum materials!
               </div>
-            ))}
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Study Planner Quick Overview & Team Recognition */}
+      <div className="grid-2">
+        {/* Adaptive Study Sprint Card */}
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div>
+            <div className="card-header">
+              <div>
+                <div className="card-title">
+                  <Calendar size={18} color="var(--primary)" />
+                  Adaptive Study Planner
+                </div>
+                <div className="card-desc">7-Day adaptive revision schedule targeting weak areas</div>
+              </div>
+              <button
+                onClick={() => navigate('/study-planner')}
+                className="btn btn-sm btn-primary"
+              >
+                Open Planner
+              </button>
+            </div>
+
+            {studyPlans.length > 0 ? (
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '0.925rem', color: 'var(--text-main)', marginBottom: '0.35rem' }}>
+                  {studyPlans[0].title}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                  Target: {studyPlans[0].target_date} • {studyPlans[0].available_hours_per_week} hrs/week
+                </div>
+
+                {/* Progress bar */}
+                {(() => {
+                  const tasks = studyPlans[0].tasks || [];
+                  const completed = tasks.filter((t) => t.is_completed).length;
+                  const pct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
+                  return (
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Tasks Completed</span>
+                        <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{completed} / {tasks.length} ({pct}%)</span>
+                      </div>
+                      <div style={{ height: '8px', backgroundColor: 'var(--border)', borderRadius: '9999px', overflow: 'hidden' }}>
+                        <div style={{ width: `${pct}%`, height: '100%', backgroundColor: 'var(--primary)', borderRadius: '9999px', transition: 'width 0.3s ease' }} />
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '1.5rem 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                No active study plan. Generate an adaptive plan in the Study Planner module.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Academic Project Team Card */}
+        <div
+          className="card"
+          style={{
+            background: 'linear-gradient(135deg, var(--bg-surface) 0%, var(--bg-surface-hover) 100%)',
+            border: '1px solid var(--border)',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+              <div style={{ padding: '6px', backgroundColor: 'var(--primary-light)', borderRadius: '8px' }}>
+                <Users size={16} color="var(--primary)" />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                  College Mini Project
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                  Artificial Intelligence & Data Science (AI&DS) • 3rd Year
+                </div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.75rem', lineHeight: 1.5 }}>
+              <strong>AI Agent-Based Personalized Learning Assistant for Higher Education</strong>
+              <br />
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>
+                Domain: Generative AI & Autonomous AI Agents
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {['HEMALATHA A', 'DIYA S', 'JAGAVI R'].map((member, mIdx) => (
+                <div
+                  key={mIdx}
+                  style={{
+                    padding: '0.35rem 0.65rem',
+                    borderRadius: '6px',
+                    backgroundColor: 'var(--bg-surface)',
+                    border: '1px solid var(--border)',
+                    fontSize: '0.725rem',
+                    fontWeight: 600,
+                    color: 'var(--primary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.35rem',
+                  }}
+                >
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--primary)' }} />
+                  {member}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>

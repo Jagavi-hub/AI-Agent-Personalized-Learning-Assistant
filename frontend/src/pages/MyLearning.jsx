@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   BookOpen,
   Target,
@@ -8,11 +9,15 @@ import {
   Layers,
   Award,
   ChevronRight,
+  FileText,
+  Sparkles,
+  GraduationCap,
 } from 'lucide-react';
 import { api } from '../services/api';
 import { useStudent } from '../context/StudentContext';
 
 export default function MyLearning() {
+  const navigate = useNavigate();
   const { profile, showNotification } = useStudent();
   const [subjects, setSubjects] = useState([]);
   const [goals, setGoals] = useState([]);
@@ -248,39 +253,105 @@ export default function MyLearning() {
             <div>
               <div className="card-title">
                 <BookOpen size={18} color="var(--primary)" />
-                Syllabus & Core Courses
+                Syllabus & Core Courses ({subjects.length} Available)
               </div>
-              <div className="card-desc">Academic courses configured for semester 6</div>
+              <div className="card-desc">Academic courses configured from verified course materials</div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-            {subjects.map((sub) => (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {subjects.map((sub) => {
+              const docCount = sub.documents?.length || (sub.document_filename ? 1 : 0);
+              const docLabel =
+                docCount > 1
+                  ? `${docCount} Materials (${sub.documents.map((d) => d.filename).join(', ')})`
+                  : sub.document_filename || sub.documents?.[0]?.filename || 'PDF';
+
+              return (
               <div
                 key={sub.id}
                 style={{
-                  padding: '1.1rem',
+                  padding: '1.15rem',
                   borderRadius: 'var(--radius-md)',
                   backgroundColor: 'var(--bg-surface-hover)',
                   border: '1px solid var(--border)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.6rem',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
-                  <span className="badge badge-primary">{sub.code}</span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    {sub.credits} Academic Credits
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span className="badge badge-primary">{sub.code}</span>
+                    <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                      {sub.name}
+                    </span>
+                  </div>
+                  <span className={`badge ${sub.num_chunks > 0 ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: '0.725rem' }}>
+                    ● {sub.num_chunks || 0} Chunks Indexed
                   </span>
                 </div>
 
-                <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.3rem' }}>
-                  {sub.name}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', maxWidth: '75%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={docLabel}>
+                    <FileText size={13} color="var(--primary)" style={{ flexShrink: 0 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      Material: <strong>{docLabel}</strong>
+                    </span>
+                  </div>
+                  <span>{sub.credits} Credits • {sub.semester}</span>
                 </div>
 
-                <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                   {sub.description}
                 </div>
+
+                {sub.topics && sub.topics.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: '0.725rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.3rem' }}>
+                      Extracted Syllabus Topics:
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                      {sub.topics.map((top, idx) => (
+                        <span
+                          key={idx}
+                          style={{
+                            fontSize: '0.7rem',
+                            padding: '0.2rem 0.5rem',
+                            borderRadius: '4px',
+                            backgroundColor: 'var(--bg-surface)',
+                            border: '1px solid var(--border)',
+                            color: 'var(--text-main)',
+                          }}
+                        >
+                          {top}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem' }}>
+                  <button
+                    onClick={() => navigate(`/assistant?subject=${sub.id}`)}
+                    className="btn btn-sm btn-primary"
+                    style={{ flex: 1, padding: '0.4rem 0.6rem', fontSize: '0.75rem' }}
+                  >
+                    <Sparkles size={13} />
+                    Ask AI Tutor
+                  </button>
+                  <button
+                    onClick={() => navigate(`/quiz?subject=${sub.id}`)}
+                    className="btn btn-sm btn-secondary"
+                    style={{ flex: 1, padding: '0.4rem 0.6rem', fontSize: '0.75rem' }}
+                  >
+                    <GraduationCap size={13} />
+                    Take Quiz
+                  </button>
+                </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         </div>
       </div>

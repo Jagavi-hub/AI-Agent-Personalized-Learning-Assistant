@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { api, getStoredToken, setStoredToken } from '../services/api';
 
-const StudentContext = createContext();
+export const StudentContext = createContext();
 
 export function StudentProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -104,4 +104,5 @@ export function StudentProvider({ children }) {
   );
 }
 
-export const useStudent = () => useContext(StudentContext);
+// eslint-disable-next-line react-refresh/only-export-components
+export { useStudent } from './useStudent';

@@ -1,4 +1,5 @@
 import datetime
+from typing import Optional, List
 from sqlalchemy import Column, Integer, String, Float, Boolean, Text, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -44,12 +45,59 @@ class Subject(Base):
     id = Column(Integer, primary_key=True, index=True)
     code = Column(String(20), unique=True, index=True, nullable=False)
     name = Column(String(100), nullable=False)
-    department = Column(String(100), default="Computer Science & Engineering")
+    department = Column(String(100), default="AI & Data Science (AI&DS)")
     semester = Column(String(50), default="6th Semester")
     description = Column(Text, default="")
     credits = Column(Integer, default=4)
+    document_filename = Column(String(255), nullable=True)
 
     quizzes = relationship("Quiz", back_populates="subject")
+    documents = relationship("KnowledgeDocument", back_populates="subject")
+
+    @property
+    def document_id(self) -> Optional[int]:
+        return self.documents[0].id if self.documents else None
+
+    @property
+    def document_filenames(self) -> List[str]:
+        if not self.documents:
+            return [self.document_filename] if self.document_filename else []
+        return [d.filename for d in self.documents if d.filename]
+
+    @property
+    def status(self) -> str:
+        if not self.documents:
+            return "not_indexed"
+        statuses = [d.status for d in self.documents]
+        if "processing" in statuses:
+            return "processing"
+        if any(s == "processed" for s in statuses):
+            return "processed"
+        if all(s == "failed" for s in statuses):
+            return "failed"
+        return statuses[0] if statuses else "not_indexed"
+
+    @property
+    def num_chunks(self) -> int:
+        if not self.documents:
+            return 0
+        return sum(d.num_chunks for d in self.documents if d.num_chunks)
+
+    @property
+    def topics(self) -> List[str]:
+        import json
+        all_topics: List[str] = []
+        if self.documents:
+            for doc in self.documents:
+                if doc.extracted_topics:
+                    try:
+                        parsed = json.loads(doc.extracted_topics)
+                        for t in parsed:
+                            if t and t not in all_topics:
+                                all_topics.append(t)
+                    except Exception:
+                        pass
+        return all_topics
 
 class LearningGoal(Base):
     __tablename__ = "learning_goals"
@@ -143,16 +191,33 @@ class KnowledgeDocument(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=True)
     filename = Column(String(255), nullable=False)
     file_path = Column(String(500), nullable=False)
     file_size = Column(Integer, default=0)
     file_type = Column(String(50), default="pdf")
     num_chunks = Column(Integer, default=0)
-    status = Column(String(50), default="processed") # "processing", "processed", "failed"
+    status = Column(String(50), default="processed") # "processing", "processed", "failed", "empty"
+    extracted_topics = Column(Text, default="[]")
     upload_date = Column(DateTime, default=datetime.datetime.utcnow)
 
     student = relationship("Student", back_populates="documents")
+    subject = relationship("Subject", back_populates="documents")
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
+
+    @property
+    def course_name(self) -> Optional[str]:
+        return self.subject.name if self.subject else None
+
+    @property
+    def topics_list(self) -> List[str]:
+        import json
+        if not self.extracted_topics:
+            return []
+        try:
+            return json.loads(self.extracted_topics)
+        except Exception:
+            return []
 
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"

@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   BrainCircuit,
+  Calendar,
 } from 'lucide-react';
 import { useStudent } from '../context/StudentContext';
 
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { path: '/assistant', label: 'AI Learning Assistant', icon: Sparkles, badge: 'Agent' },
   { path: '/my-learning', label: 'My Learning', icon: BookOpen },
   { path: '/quiz', label: 'Quiz & Practice', icon: GraduationCap },
+  { path: '/study-planner', label: 'Study Planner', icon: Calendar },
   { path: '/recommendations', label: 'Recommendations', icon: Compass },
   { path: '/knowledge-base', label: 'Knowledge Base', icon: FileText },
   { path: '/analytics', label: 'Progress Analytics', icon: BarChart3 },

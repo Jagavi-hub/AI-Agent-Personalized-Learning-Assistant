@@ -10,6 +10,7 @@ import {
   Cpu,
   Layers,
   Sparkles,
+  BookOpen,
 } from 'lucide-react';
 import { api } from '../services/api';
 import { useStudent } from '../context/StudentContext';
@@ -17,23 +18,37 @@ import { useStudent } from '../context/StudentContext';
 export default function KnowledgeBase() {
   const { showNotification } = useStudent();
   const [documents, setDocuments] = useState([]);
+  const [subjects, setSubjects] = useState([]);
+  const [uploadSubjectId, setUploadSubjectId] = useState('');
+  const [newCourseName, setNewCourseName] = useState('');
+  const [newCourseCode, setNewCourseCode] = useState('');
   const [uploading, setUploading] = useState(false);
+
+  // Search state
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchSubjectId, setSearchSubjectId] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [loadingDocs, setLoadingDocs] = useState(true);
 
   useEffect(() => {
-    loadDocuments();
+    loadData();
   }, []);
 
-  const loadDocuments = async () => {
+  const loadData = async () => {
     try {
       setLoadingDocs(true);
-      const docs = await api.getDocuments();
-      setDocuments(docs);
+      const [docs, subjs] = await Promise.all([
+        api.getDocuments(),
+        api.getSubjects().catch(() => []),
+      ]);
+      setDocuments(docs || []);
+      setSubjects(subjs || []);
+      if (subjs && subjs.length > 0 && !uploadSubjectId) {
+        setUploadSubjectId(String(subjs[0].id));
+      }
     } catch (err) {
-      console.error('Failed to load documents:', err);
+      console.error('Failed to load knowledge base data:', err);
     } finally {
       setLoadingDocs(false);
     }
@@ -49,13 +64,37 @@ export default function KnowledgeBase() {
       return;
     }
 
+    if (uploadSubjectId === '__new__' && !newCourseName.trim()) {
+      showNotification('Please enter a course name for the new course.', 'error');
+      return;
+    }
+
     try {
       setUploading(true);
       const formData = new FormData();
       formData.append('file', file);
+      if (uploadSubjectId === '__new__') {
+        formData.append('new_course_name', newCourseName.trim());
+        if (newCourseCode.trim()) {
+          formData.append('new_course_code', newCourseCode.trim());
+        }
+      } else if (uploadSubjectId) {
+        formData.append('subject_id', uploadSubjectId);
+      }
 
       const created = await api.uploadDocument(formData);
-      setDocuments((prev) => [created, ...prev]);
+      // Reload both documents and subjects to maintain full dynamic synchronization across the system
+      const [updatedDocs, updatedSubjs] = await Promise.all([
+        api.getDocuments(),
+        api.getSubjects().catch(() => []),
+      ]);
+      setDocuments(updatedDocs || []);
+      setSubjects(updatedSubjs || []);
+      if (uploadSubjectId === '__new__') {
+        setUploadSubjectId(created.subject_id ? String(created.subject_id) : '');
+        setNewCourseName('');
+        setNewCourseCode('');
+      }
       showNotification(`"${file.name}" indexed successfully with ${created.num_chunks} chunks!`, 'success');
     } catch (err) {
       showNotification(err.message || 'Failed to upload document', 'error');
@@ -83,10 +122,11 @@ export default function KnowledgeBase() {
 
     try {
       setSearching(true);
-      const results = await api.searchKnowledge(searchQuery, 4);
+      const subId = searchSubjectId ? Number(searchSubjectId) : null;
+      const results = await api.searchKnowledge(searchQuery, 4, subId);
       setSearchResults(results);
       if (results.length === 0) {
-        showNotification('No matching passages found above relevance threshold.', 'info');
+        showNotification('No matching passages found above relevance threshold for this course filter.', 'info');
       }
     } catch (err) {
       showNotification('Search failed', 'error');
@@ -101,7 +141,7 @@ export default function KnowledgeBase() {
       <div>
         <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Course Knowledge Base & Retrieval (RAG)</h1>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginTop: '0.2rem' }}>
-          Upload syllabus materials, lecture slides, and notes for chunking, semantic indexing, and grounded AI responses.
+          Grounding AI responses, quizzes, and agent reasoning in curriculum courses and authentic syllabus materials.
         </p>
       </div>
 
@@ -115,15 +155,69 @@ export default function KnowledgeBase() {
                 <Upload size={18} color="var(--primary)" />
                 Ingest Academic Material
               </div>
-              <div className="card-desc">Supported formats: PDF, TXT (Max 25 MB)</div>
+              <div className="card-desc">Supported formats: PDF, TXT (Max 20 MB)</div>
             </div>
+          </div>
+
+          <div style={{ marginBottom: '1rem' }}>
+            <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.35rem', display: 'block' }}>
+              Assign to Academic Course:
+            </label>
+            <select
+              value={uploadSubjectId}
+              onChange={(e) => setUploadSubjectId(e.target.value)}
+              className="input-field"
+              style={{ width: '100%' }}
+            >
+              <option value="">Auto-Detect from Filename</option>
+              {subjects.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.code}: {s.name} ({s.documents?.length || 0} {s.documents?.length === 1 ? 'doc' : 'docs'})
+                </option>
+              ))}
+              <option value="__new__">+ Create New Academic Course...</option>
+            </select>
+
+            {uploadSubjectId === '__new__' && (
+              <div style={{ marginTop: '0.75rem', padding: '0.875rem', backgroundColor: 'var(--bg-surface-hover)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--primary)' }}>
+                  New Course Details
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>
+                    Course Name *
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="e.g. Big Data Analytics, Cryptography"
+                    value={newCourseName}
+                    onChange={(e) => setNewCourseName(e.target.value)}
+                    style={{ width: '100%', fontSize: '0.8125rem', padding: '0.45rem 0.65rem' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>
+                    Course Code (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="e.g. 22AI602 (auto-generated if empty)"
+                    value={newCourseCode}
+                    onChange={(e) => setNewCourseCode(e.target.value)}
+                    style={{ width: '100%', fontSize: '0.8125rem', padding: '0.45rem 0.65rem' }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <div
             style={{
               border: '2px dashed var(--border)',
               borderRadius: 'var(--radius-md)',
-              padding: '2.5rem 1.5rem',
+              padding: '2rem 1.5rem',
               textAlign: 'center',
               backgroundColor: 'var(--bg-surface-hover)',
               cursor: 'pointer',
@@ -148,8 +242,8 @@ export default function KnowledgeBase() {
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
               <div
                 style={{
-                  width: '48px',
-                  height: '48px',
+                  width: '44px',
+                  height: '44px',
                   borderRadius: '50%',
                   backgroundColor: 'var(--primary-light)',
                   color: 'var(--primary)',
@@ -158,14 +252,14 @@ export default function KnowledgeBase() {
                   justifyContent: 'center',
                 }}
               >
-                <Upload size={22} />
+                <Upload size={20} />
               </div>
               <div>
-                <div style={{ fontSize: '0.925rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
                   {uploading ? 'Processing & Chunking Document...' : 'Click or Drag & Drop Academic Document'}
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                  Text will be parsed into overlapping semantic windows and stored for vector search.
+                  Text will be parsed into overlapping semantic windows and indexed for TF-IDF vector retrieval.
                 </div>
               </div>
             </div>
@@ -194,7 +288,7 @@ export default function KnowledgeBase() {
                   1. Extraction & Window Chunking
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  PyPDF extracts text page-by-page. Text is segmented into 300-word chunks with 50-word overlap to preserve context across boundaries.
+                  PyPDF extracts text page-by-page from the 4 academic PDFs. Text is segmented into 300-word chunks with 50-word overlap to preserve context across boundaries.
                 </div>
               </div>
             </div>
@@ -205,10 +299,10 @@ export default function KnowledgeBase() {
               </div>
               <div>
                 <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                  2. Semantic Vector Space
+                  2. TF-IDF Vector Retrieval & Cosine Distance
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  Chunks are indexed using TF-IDF n-gram vectors with cosine similarity distance metrics, providing sub-millisecond retrieval.
+                  Chunks are indexed using scikit-learn TF-IDF n-gram vectors (1-2 ngrams, 5000 features) with cosine distance metrics, providing sub-millisecond course-isolated retrieval.
                 </div>
               </div>
             </div>
@@ -219,10 +313,10 @@ export default function KnowledgeBase() {
               </div>
               <div>
                 <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                  3. Source-Aware Grounding
+                  3. Source-Aware Grounding & Course Isolation
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  Relevant passages are injected into the AI Agent prompt. Answers display citations to exact document files and page numbers.
+                  Relevant passages are filtered strictly to the selected course. Answers cite the exact PDF file, unit, and page numbers.
                 </div>
               </div>
             </div>
@@ -236,20 +330,33 @@ export default function KnowledgeBase() {
           <div>
             <div className="card-title">
               <Search size={18} color="var(--primary)" />
-              Semantic Search Tester (Live RAG Verification)
+              Semantic Search Tester (Live Course RAG Verification)
             </div>
-            <div className="card-desc">Test real-time passage retrieval against indexed course material</div>
+            <div className="card-desc">Test real-time passage retrieval against the 4 indexed course PDFs</div>
           </div>
         </div>
 
-        <form onSubmit={handleSearch} style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem' }}>
+        <form onSubmit={handleSearch} style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
+          <select
+            value={searchSubjectId}
+            onChange={(e) => setSearchSubjectId(e.target.value)}
+            className="input-field"
+            style={{ width: '220px' }}
+          >
+            <option value="">All Courses</option>
+            {subjects.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.code}: {s.name}
+              </option>
+            ))}
+          </select>
           <input
             type="text"
             className="input-field"
-            placeholder="Search query (e.g. vanishing gradient in backpropagation, learning rate, momentum)..."
+            placeholder="Search query (e.g. well-posed learning problem, Turing test, latency bandwidth, cloud IaaS)..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ flex: 1 }}
+            style={{ flex: 1, minWidth: '240px' }}
           />
           <button type="submit" disabled={searching || !searchQuery.trim()} className="btn btn-primary">
             {searching ? 'Retrieving...' : 'Test Retrieval'}
@@ -298,9 +405,9 @@ export default function KnowledgeBase() {
           <div>
             <div className="card-title">
               <FileText size={18} color="var(--primary)" />
-              Indexed Course Documents ({documents.length})
+              Indexed Course Documents & Materials ({documents.length})
             </div>
-            <div className="card-desc">Active knowledge bases available for student queries</div>
+            <div className="card-desc">Active course repositories available for student queries and quizzes</div>
           </div>
         </div>
 
@@ -309,11 +416,11 @@ export default function KnowledgeBase() {
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
                 <th style={{ padding: '0.75rem 1rem' }}>Filename</th>
-                <th style={{ padding: '0.75rem 1rem' }}>Type</th>
-                <th style={{ padding: '0.75rem 1rem' }}>File Size</th>
+                <th style={{ padding: '0.75rem 1rem' }}>Curriculum Course</th>
                 <th style={{ padding: '0.75rem 1rem' }}>Indexed Chunks</th>
+                <th style={{ padding: '0.75rem 1rem' }}>Syllabus Topics</th>
                 <th style={{ padding: '0.75rem 1rem' }}>Status</th>
-                <th style={{ padding: '0.75rem 1rem' }}>Upload Date</th>
+                <th style={{ padding: '0.75rem 1rem' }}>File Size</th>
                 <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Action</th>
               </tr>
             </thead>
@@ -326,20 +433,47 @@ export default function KnowledgeBase() {
                       {doc.filename}
                     </div>
                   </td>
-                  <td style={{ padding: '0.85rem 1rem', textTransform: 'uppercase', fontSize: '0.75rem' }}>
-                    <span className="badge badge-neutral">{doc.file_type}</span>
-                  </td>
-                  <td style={{ padding: '0.85rem 1rem', color: 'var(--text-muted)' }}>
-                    {doc.file_size ? `${(doc.file_size / 1024).toFixed(1)} KB` : 'N/A'}
+                  <td style={{ padding: '0.85rem 1rem' }}>
+                    <span className="badge badge-primary">
+                      {doc.course_name || 'Curriculum Material'}
+                    </span>
                   </td>
                   <td style={{ padding: '0.85rem 1rem' }}>
-                    <span className="badge badge-primary">{doc.num_chunks} chunks</span>
+                    <span className="badge badge-neutral">{doc.num_chunks} chunks</span>
+                  </td>
+                  <td style={{ padding: '0.85rem 1rem', maxWidth: '280px' }}>
+                    {doc.extracted_topics && doc.extracted_topics.length > 0 ? (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                        {doc.extracted_topics.slice(0, 2).map((top, idx) => (
+                          <span
+                            key={idx}
+                            style={{
+                              fontSize: '0.6875rem',
+                              padding: '0.15rem 0.4rem',
+                              borderRadius: '4px',
+                              backgroundColor: 'var(--bg-surface-hover)',
+                              border: '1px solid var(--border)',
+                              color: 'var(--text-main)',
+                            }}
+                          >
+                            {top}
+                          </span>
+                        ))}
+                        {doc.extracted_topics.length > 2 && (
+                          <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
+                            +{doc.extracted_topics.length - 2} more
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>—</span>
+                    )}
                   </td>
                   <td style={{ padding: '0.85rem 1rem' }}>
                     <span className="badge badge-success">{doc.status}</span>
                   </td>
-                  <td style={{ padding: '0.85rem 1rem', color: 'var(--text-muted)' }}>
-                    {new Date(doc.upload_date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                  <td style={{ padding: '0.85rem 1rem', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+                    {doc.file_size ? `${(doc.file_size / 1024).toFixed(1)} KB` : 'N/A'}
                   </td>
                   <td style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>
                     <button

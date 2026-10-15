@@ -1,5 +1,5 @@
 from typing import List, Optional, Any, Dict
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import datetime
 
 # ----------------- Authentication Schemas -----------------
@@ -80,6 +80,18 @@ class AuthResponse(BaseModel):
     is_onboarded: bool = False
 
 # ----------------- Subject Schemas -----------------
+class AssociatedDocumentOut(BaseModel):
+    id: int
+    filename: str
+    file_size: Optional[int] = 0
+    file_type: Optional[str] = "pdf"
+    num_chunks: Optional[int] = 0
+    status: Optional[str] = "processed"
+    upload_date: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
 class SubjectOut(BaseModel):
     id: int
     code: str
@@ -88,6 +100,13 @@ class SubjectOut(BaseModel):
     semester: str
     description: str
     credits: int
+    document_filename: Optional[str] = None
+    document_filenames: Optional[List[str]] = []
+    document_id: Optional[int] = None
+    status: Optional[str] = "processed"
+    num_chunks: Optional[int] = 0
+    topics: Optional[List[str]] = []
+    documents: Optional[List[AssociatedDocumentOut]] = []
 
     class Config:
         from_attributes = True
@@ -142,8 +161,9 @@ class QuestionOut(BaseModel):
     topic: Optional[str] = ""
 
 class QuizGenerateRequest(BaseModel):
-    topic: str = Field(..., example="Backpropagation & Neural Networks")
+    topic: Optional[str] = Field("Machine Learning", example="Machine Learning")
     subject_id: Optional[int] = None
+    document_id: Optional[int] = None
     difficulty: str = Field("Intermediate", example="Intermediate")
     num_questions: int = Field(5, ge=1, le=10)
 
@@ -185,6 +205,7 @@ class QuizSubmitResponse(BaseModel):
     strong_topics: List[str]
     results: List[QuestionReviewResult]
     recommendations_generated: int
+    adaptive_guidance: Optional[str] = None
 
 class QuizAttemptOut(BaseModel):
     id: int
@@ -198,6 +219,52 @@ class QuizAttemptOut(BaseModel):
     class Config:
         from_attributes = True
 
+class MistakeInputItem(BaseModel):
+    question_id: int
+    question_text: str
+    option_a: Optional[str] = None
+    option_b: Optional[str] = None
+    option_c: Optional[str] = None
+    option_d: Optional[str] = None
+    selected_option: str
+    correct_option: str
+    explanation: Optional[str] = None
+    topic: Optional[str] = None
+
+class QuizMistakeExplanationRequest(BaseModel):
+    quiz_id: Optional[int] = None
+    attempt_id: Optional[int] = None
+    subject_id: Optional[int] = None
+    mistakes: Optional[List[MistakeInputItem]] = None
+
+class QuestionExplanationOut(BaseModel):
+    question_id: int
+    question_text: str
+    selected_option: str
+    selected_option_text: Optional[str] = ""
+    correct_option: str
+    correct_option_text: Optional[str] = ""
+    why_incorrect: str
+    correct_concept: str
+    step_by_step_explanation: str
+    example_or_analogy: str
+    tip_to_remember: str
+    citation: Optional[str] = None
+    topic: Optional[str] = None
+    recommended_topic: Optional[str] = None
+
+class QuizMistakeExplanationResponse(BaseModel):
+    quiz_id: Optional[int] = None
+    attempt_id: Optional[int] = None
+    score: int
+    total_questions: int
+    percentage: float
+    has_mistakes: bool
+    summary_message: str
+    explanations: List[QuestionExplanationOut]
+    recommended_revision_topics: List[str]
+    provider: str
+
 # ----------------- Knowledge Base Schemas -----------------
 class DocumentOut(BaseModel):
     id: int
@@ -207,6 +274,20 @@ class DocumentOut(BaseModel):
     num_chunks: int
     status: str
     upload_date: datetime
+    subject_id: Optional[int] = None
+    course_name: Optional[str] = None
+    extracted_topics: Optional[List[str]] = []
+
+    @field_validator("extracted_topics", mode="before")
+    @classmethod
+    def parse_extracted_topics(cls, v):
+        if isinstance(v, str):
+            try:
+                import json
+                return json.loads(v)
+            except Exception:
+                return []
+        return v or []
 
     class Config:
         from_attributes = True
@@ -220,11 +301,12 @@ class DocumentSearchResult(BaseModel):
 
 class KnowledgeSearchRequest(BaseModel):
     query: str
+    subject_id: Optional[int] = None
     top_k: int = 3
 
 # ----------------- AI Agent Activity Panel & Chat Schemas -----------------
 class AgentDecision(BaseModel):
-    action_type: str  # explain_concept, clarify_doubt, summarize_material, create_study_plan, generate_practice_questions, recommend_learning_resources, suggest_revision_weak_topic
+    action_type: str  # explain_concept, simplify_concept, generate_quiz, revise_weak_topic, create_study_plan, notes_qa, recommend_resources
     intent: str
     rationale: str
     tool_executed: str
@@ -234,11 +316,19 @@ class AgentDecision(BaseModel):
     retrieved_sources: Optional[List[Dict[str, Any]]] = []
     recommended_next_step: Optional[str] = "Complete practice quiz to verify retention"
     response_time_ms: Optional[float] = 0.0
+    # Enhanced transparent decision & reasoning metadata
+    detected_intent: Optional[str] = None
+    action_reason: Optional[str] = None
+    selected_action: Optional[str] = None
+    relevant_student_context: Optional[Dict[str, Any]] = None
+    service_routing: Optional[Dict[str, Any]] = None
 
 class ChatRequest(BaseModel):
     conversation_id: Optional[int] = None
     message: str
     action_override: Optional[str] = None
+    subject_id: Optional[int] = None
+    subject_code: Optional[str] = None
 
 class SourceCitation(BaseModel):
     document_id: int

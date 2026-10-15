@@ -85,18 +85,21 @@ export const api = {
 
   // Subjects & Curriculum
   getSubjects: () => request('/subjects'),
+  getCourses: () => request('/courses'),
+  getCourseTopics: (courseId) => request(`/courses/${courseId}/topics`),
 
   // Learning Activities
   getActivities: () => request('/student/activities'),
 
   // AI Agent & Chat
-  sendAgentMessage: (message, conversationId = null, actionOverride = null) =>
+  sendAgentMessage: (message, conversationId = null, actionOverride = null, subjectId = null) =>
     request('/agent/chat', {
       method: 'POST',
       body: JSON.stringify({
         message,
         conversation_id: conversationId,
         action_override: actionOverride,
+        subject_id: subjectId,
       }),
     }),
   getConversations: () => request('/agent/conversations'),
@@ -104,7 +107,7 @@ export const api = {
   deleteConversation: (id) => request(`/agent/conversations/${id}`, { method: 'DELETE' }),
 
   // Quiz & Adaptive Practice
-  generateQuiz: (topic, difficulty = 'Intermediate', numQuestions = 5, subjectId = null) =>
+  generateQuiz: (topic, difficulty = 'Intermediate', numQuestions = 5, subjectId = null, documentId = null) =>
     request('/quiz/generate', {
       method: 'POST',
       body: JSON.stringify({
@@ -112,6 +115,7 @@ export const api = {
         difficulty,
         num_questions: numQuestions,
         subject_id: subjectId,
+        document_id: documentId,
       }),
     }),
   getQuiz: (id) => request(`/quiz/${id}`),
@@ -125,6 +129,12 @@ export const api = {
     }),
   getQuizAttempts: () => request('/quiz/attempts/history'),
   getQuizReview: (attemptId) => request(`/quiz/attempts/${attemptId}/review`),
+  explainQuizMistakes: (payload) =>
+    request('/quiz/explain-mistakes', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  getAttemptMistakeExplanations: (attemptId) => request(`/quiz/attempts/${attemptId}/explain-mistakes`),
 
   // Knowledge Base (RAG)
   getDocuments: () => request('/knowledge/documents'),
@@ -134,10 +144,10 @@ export const api = {
       body: formData,
     }),
   deleteDocument: (id) => request(`/knowledge/documents/${id}`, { method: 'DELETE' }),
-  searchKnowledge: (query, topK = 3) =>
+  searchKnowledge: (query, topK = 3, subjectId = null) =>
     request('/knowledge/search', {
       method: 'POST',
-      body: JSON.stringify({ query, top_k: topK }),
+      body: JSON.stringify({ query, top_k: topK, subject_id: subjectId }),
     }),
 
   // Recommendations

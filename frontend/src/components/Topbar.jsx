@@ -1,18 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, Link } from 'react-router-dom';
-import { Sun, Moon, Bell, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
+import { Sun, Moon, Bell, CheckCircle2, AlertCircle, Sparkles, LogOut } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useStudent } from '../context/StudentContext';
 import { api } from '../services/api';
 
 const ROUTE_TITLES = {
   '/': 'Academic Dashboard',
+  '/dashboard': 'Academic Dashboard',
   '/assistant': 'AI Learning Assistant & Agent',
   '/my-learning': 'My Learning & Curriculum',
+  '/learning': 'My Learning & Curriculum',
   '/quiz': 'Quiz & Adaptive Practice',
+  '/study-planner': 'Adaptive Study Planner',
   '/recommendations': 'Personalized Recommendations',
   '/knowledge-base': 'Knowledge Base & Retrieval (RAG)',
   '/analytics': 'Progress Analytics & Mastery',
+  '/progress': 'Progress Analytics & Mastery',
   '/profile': 'Student Profile',
   '/settings': 'System Settings',
 };
@@ -20,7 +24,7 @@ const ROUTE_TITLES = {
 export default function Topbar() {
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
-  const { profile } = useStudent();
+  const { profile, logout } = useStudent();
   const [health, setHealth] = useState({ online: false, gemini: false });
 
   useEffect(() => {
@@ -174,6 +178,29 @@ export default function Topbar() {
             <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>{profile?.year || '3rd Year'}</div>
           </div>
         </Link>
+
+        {/* Sign Out Button */}
+        <button
+          onClick={() => logout()}
+          style={{
+            background: 'var(--bg-surface-hover)',
+            border: '1px solid var(--border)',
+            color: 'var(--text-muted)',
+            padding: '0.45rem 0.75rem',
+            borderRadius: '9999px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.35rem',
+            fontSize: '0.75rem',
+            fontWeight: 500,
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+          title="Sign Out of LearnAI"
+        >
+          <LogOut size={13} />
+          <span>Sign Out</span>
+        </button>
       </div>
     </header>
   );

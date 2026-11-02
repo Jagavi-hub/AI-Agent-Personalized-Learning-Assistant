@@ -2,15 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Compass,
-  CheckCircle2,
-  Clock,
   ExternalLink,
   BookOpen,
   Sparkles,
-  Filter,
-  FileText,
-  AlertCircle,
-  GraduationCap,
 } from 'lucide-react';
 import { api } from '../services/api';
 import { useStudent } from '../context/StudentContext';
@@ -19,7 +13,7 @@ export default function Recommendations() {
   const navigate = useNavigate();
   const { showNotification } = useStudent();
   const [recommendations, setRecommendations] = useState([]);
-  const [resources, setResources] = useState({ external_resources: [], internal_knowledge_materials: [] });
+  const [resources, setResources] = useState({ external_resources: [] });
   const [filter, setFilter] = useState('active'); // 'all', 'active', 'completed'
   const [loading, setLoading] = useState(true);
 
@@ -202,117 +196,55 @@ export default function Recommendations() {
         </div>
       </div>
 
-      {/* Learning Resource Recommendations Grid */}
-      <div className="grid-2">
-        {/* Curated External Resources */}
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">
-                <BookOpen size={18} color="var(--primary)" />
-                Curated Academic References
-              </div>
-              <div className="card-desc">Verified courseware from MIT, Stanford, and documentation</div>
+      {/* Curated Academic References (Full Width 100%) */}
+      <div className="card recommendations-references-container">
+        <div className="card-header">
+          <div>
+            <div className="card-title">
+              <BookOpen size={18} color="var(--primary)" />
+              Curated Academic References ({resources.external_resources?.length || 0})
             </div>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {resources.external_resources?.map((res) => (
-              <a
-                key={res.id}
-                href={res.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  padding: '1rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--bg-surface-hover)',
-                  border: '1px solid var(--border)',
-                  textDecoration: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  transition: 'border-color 0.15s ease',
-                }}
-              >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
-                    <span className="badge badge-primary">{res.type}</span>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{res.source}</span>
-                  </div>
-                  <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                    {res.title}
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                    {res.reason}
-                  </div>
-                </div>
-
-                <ExternalLink size={16} color="var(--primary)" style={{ flexShrink: 0, marginLeft: '0.75rem' }} />
-              </a>
-            ))}
+            <div className="card-desc">Verified courseware from MIT, Stanford, and documentation</div>
           </div>
         </div>
 
-        {/* Internal Knowledge Base Materials */}
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">
-                <FileText size={18} color="var(--primary)" />
-                Course Knowledge Base Materials
-              </div>
-              <div className="card-desc">Uploaded lecture notes indexed for semantic RAG</div>
-            </div>
-            <button
-              onClick={() => navigate('/knowledge-base')}
-              className="btn btn-sm btn-secondary"
+        <div className="recommendations-references-grid">
+          {resources.external_resources?.map((res) => (
+            <a
+              key={res.id}
+              href={res.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="recommendations-reference-card"
             >
-              Upload Notes
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {resources.internal_knowledge_materials?.map((mat) => (
-              <div
-                key={mat.id}
-                style={{
-                  padding: '1rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--bg-surface-hover)',
-                  border: '1px solid var(--border)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                }}
-              >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
-                    <span className="badge badge-neutral">{mat.type}</span>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <span className="badge badge-primary">{res.type}</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>{res.source}</span>
                   </div>
-                  <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                    {mat.title}
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                    {mat.reason}
-                  </div>
+                  <ExternalLink size={15} color="var(--primary)" style={{ flexShrink: 0 }} />
                 </div>
-
-                <button
-                  onClick={() => navigate('/knowledge-base')}
-                  className="btn btn-sm btn-accent"
-                >
-                  View
-                </button>
+                <div style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.35rem', lineHeight: 1.35 }}>
+                  {res.title}
+                </div>
+                <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', lineHeight: 1.45 }}>
+                  {res.reason}
+                </div>
               </div>
-            ))}
 
-            {(!resources.internal_knowledge_materials || resources.internal_knowledge_materials.length === 0) && (
-              <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-                No uploaded documents. Upload lecture slides in Knowledge Base to enable retrieval!
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--primary)', marginTop: '0.5rem' }}>
+                <span>Access Reference</span>
+                <ExternalLink size={13} />
               </div>
-            )}
-          </div>
+            </a>
+          ))}
+
+          {(!resources.external_resources || resources.external_resources.length === 0) && (
+            <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text-muted)', fontSize: '0.875rem', gridColumn: '1 / -1' }}>
+              No curated academic references found.
+            </div>
+          )}
         </div>
       </div>
     </div>

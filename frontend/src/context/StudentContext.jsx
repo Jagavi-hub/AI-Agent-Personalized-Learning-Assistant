@@ -35,8 +35,30 @@ export function StudentProvider({ children }) {
     fetchCurrentUser();
   }, [token]);
 
+  useEffect(() => {
+    const handleAccountSuspended = (e) => {
+      setStoredToken(null);
+      setToken(null);
+      setUser(null);
+      showNotification(
+        e.detail?.message || 'Account has been suspended by an administrator. Please contact your department coordinator.',
+        'error'
+      );
+    };
+    window.addEventListener('learnai_account_suspended', handleAccountSuspended);
+    return () => window.removeEventListener('learnai_account_suspended', handleAccountSuspended);
+  }, []);
+
   const login = async (email, password) => {
     const res = await api.login({ email, password });
+    setStoredToken(res.access_token);
+    setToken(res.access_token);
+    setUser(res.student);
+    return res;
+  };
+
+  const adminLogin = async (email, password) => {
+    const res = await api.adminLogin({ email, password });
     setStoredToken(res.access_token);
     setToken(res.access_token);
     setUser(res.student);
@@ -53,6 +75,14 @@ export function StudentProvider({ children }) {
 
   const googleAuth = async (credential) => {
     const res = await api.googleAuth(credential);
+    setStoredToken(res.access_token);
+    setToken(res.access_token);
+    setUser(res.student);
+    return res;
+  };
+
+  const adminGoogleAuth = async (credential) => {
+    const res = await api.adminGoogleAuth(credential);
     setStoredToken(res.access_token);
     setToken(res.access_token);
     setUser(res.student);
@@ -90,8 +120,10 @@ export function StudentProvider({ children }) {
         isOnboarded: user?.is_onboarded ?? false,
         loading,
         login,
+        adminLogin,
         register,
         googleAuth,
+        adminGoogleAuth,
         logout,
         completeOnboarding,
         refreshProfile: fetchCurrentUser,

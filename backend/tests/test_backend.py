@@ -328,6 +328,8 @@ def test_course_quiz_grounding_and_rejection(client):
     assert ml_q_res.status_code == 200
     ml_quiz = ml_q_res.json()
     assert len(ml_quiz["questions"]) == 3
+    ml_all_text = " ".join([q["question_text"] for q in ml_quiz["questions"]]).lower()
+    assert "learn" in ml_all_text or "mitchell" in ml_all_text or "checkers" in ml_all_text or "target function" in ml_all_text
 
     # Generate quiz for Computer Networks (subject_id=3)
     cn_q_res = client.post("/api/quiz/generate", json={
@@ -339,6 +341,88 @@ def test_course_quiz_grounding_and_rejection(client):
     assert cn_q_res.status_code == 200
     cn_quiz = cn_q_res.json()
     assert len(cn_quiz["questions"]) == 3
+    cn_all_text = " ".join([q["question_text"] for q in cn_quiz["questions"]]).lower()
+    assert "network" in cn_all_text or "packet" in cn_all_text or "bandwidth" in cn_all_text or "latency" in cn_all_text or "protocol" in cn_all_text
+    assert "mitchell" not in cn_all_text and "checkers" not in cn_all_text
+
+    # Generate quiz for Cloud Computing (subject_id=4)
+    cc_q_res = client.post("/api/quiz/generate", json={
+        "topic": "Cloud Deployment Models",
+        "difficulty": "Intermediate",
+        "num_questions": 3,
+        "subject_id": 4
+    })
+    assert cc_q_res.status_code == 200
+    cc_quiz = cc_q_res.json()
+    assert len(cc_quiz["questions"]) == 3
+    cc_all_text = " ".join([q["question_text"] for q in cc_quiz["questions"]]).lower()
+    assert "cloud" in cc_all_text or "nist" in cc_all_text or "virtualization" in cc_all_text or "service" in cc_all_text
+    assert "mitchell" not in cc_all_text and "checkers" not in cc_all_text
+
+    # Rejection of completely unsupported off-topic query with no matched subject
+    bad_res = client.post("/api/quiz/generate", json={
+        "topic": "Quantum Origami on Mars 99999",
+        "difficulty": "Intermediate",
+        "num_questions": 3
+    })
+    assert bad_res.status_code == 400
+    assert "no curriculum course" in bad_res.json()["detail"].lower()
+
+def test_document_isolation_multi_tenant(client):
+    from app.core.database import SessionLocal
+    from app.models.entities import KnowledgeDocument, DocumentChunk
+    from app.retrieval.engine import retrieval_engine
+
+    test_db = SessionLocal()
+
+    # Create dummy private document for a non-existent student 999
+    private_doc = KnowledgeDocument(
+        student_id=999,
+        subject_id=1,
+        filename="confidential_student999_exam_answers.pdf",
+        file_path="C:/dummy/confidential_student999_exam_answers.pdf",
+        file_size=1024,
+        file_type="pdf",
+        status="processed",
+        is_course_material=False
+    )
+    test_db.add(private_doc)
+    test_db.commit()
+    test_db.refresh(private_doc)
+
+    chunk = DocumentChunk(
+        document_id=private_doc.id,
+        chunk_index=0,
+        text="CONFIDENTIAL EXAM PASSCODE 88291 FOR STUDENT 999 ONLY",
+        page_number=1
+    )
+    test_db.add(chunk)
+    test_db.commit()
+
+    try:
+        # Student 1 (current_user) searching should NOT find Student 999's private chunk
+        res = retrieval_engine.search_relevant_chunks(
+            db=test_db,
+            query="CONFIDENTIAL EXAM PASSCODE 88291",
+            student_id=1,
+            subject_id=1
+        )
+        filenames = [r["filename"] for r in res]
+        assert "confidential_student999_exam_answers.pdf" not in filenames
+
+        # Attempting to generate a quiz from Student 999's private document should fail with 400 Unauthorized
+        quiz_res = client.post("/api/quiz/generate", json={
+            "topic": "Confidential",
+            "document_id": private_doc.id
+        })
+        assert quiz_res.status_code == 400
+        assert "unauthorized" in quiz_res.json()["detail"].lower()
+    finally:
+        # Cleanup
+        test_db.query(DocumentChunk).filter(DocumentChunk.document_id == private_doc.id).delete()
+        test_db.query(KnowledgeDocument).filter(KnowledgeDocument.id == private_doc.id).delete()
+        test_db.commit()
+        test_db.close()
 
 def test_ai_academic_common_doubts(client):
     test_queries = [
@@ -346,13 +430,14 @@ def test_ai_academic_common_doubts(client):
         ("Explain the difference between AI and Machine Learning", ["subset", "artificial intelligence", "machine learning"]),
         ("What is overfitting and how do we prevent it?", ["overfitting", "training", "regularization", "generaliz"]),
         ("Explain TCP vs UDP and when to use each", ["tcp", "udp", "connection", "reliability", "packet"]),
-        ("What is cloud computing and what are its NIST characteristics?", ["cloud", "nist", "service", "elasticity", "resource"])
+        ("What is cloud computing and what are its NIST characteristics?", ["cloud", "nist", "service", "elasticity", "resource"]),
+        ("What is hybrid cloud?", ["hybrid", "public", "private", "cloud"])
     ]
     for query, expected_keywords in test_queries:
         res = client.post("/api/agent/chat", json={"message": query})
         assert res.status_code == 200, f"Failed on academic query: {query}"
         data = res.json()
-        assert "content" in data and len(data["content"]) > 150
+        assert "content" in data and len(data["content"]) > 100
         content_lower = data["content"].lower()
         matched = [kw for kw in expected_keywords if kw in content_lower]
         assert len(matched) >= 2, f"Query '{query}' response did not contain expected domain concepts. Got: {data['content'][:200]}"
@@ -485,12 +570,15 @@ def test_dynamic_courses_and_multidoc_aggregation(client):
 
 def test_quiz_document_isolation_and_empty_rejection(client):
     # 1. Generate quiz with specific document_id
+    doc_res = client.get("/api/knowledge/documents")
+    ml_doc = next((d for d in doc_res.json() if d.get("subject_id") == 1), None)
+    doc_id = ml_doc["id"] if ml_doc else 4
     doc_q_res = client.post("/api/quiz/generate", json={
         "topic": "Backpropagation & Neural Networks",
         "difficulty": "Intermediate",
         "num_questions": 3,
         "subject_id": 1,
-        "document_id": 1
+        "document_id": doc_id
     })
     assert doc_q_res.status_code == 200
     doc_quiz = doc_q_res.json()

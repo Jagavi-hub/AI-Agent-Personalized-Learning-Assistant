@@ -88,13 +88,26 @@ class AIAgentOrchestrator:
         if not student:
             raise ValueError(f"Student with id {student_id} not found.")
 
+        st_settings = student.settings
+        learning_prefs = st_settings.get("learning_preferences", {})
+        ai_prefs = st_settings.get("ai_tutor_preferences", {})
+
         profile_data = {
             "name": student.name or "Student",
             "department": student.department or "AI & Data Science (AI&DS)",
             "year": student.year or "3rd Year",
             "semester": student.semester or "6th Semester",
             "current_skill_level": student.current_skill_level or "Intermediate",
-            "preferred_learning_style": student.preferred_learning_style or "Visual & Practical",
+            "preferred_learning_style": student.preferred_learning_style or learning_prefs.get("preferred_learning_style", "Visual"),
+            "explanation_level": learning_prefs.get("explanation_level", "Detailed"),
+            "preferred_answer_format": learning_prefs.get("preferred_answer_format", "Step-by-step"),
+            "preferred_language": learning_prefs.get("preferred_language", "English"),
+            "study_pace": learning_prefs.get("study_pace", "Moderate"),
+            "voice_enabled": ai_prefs.get("voice_enabled", False),
+            "explanation_verbosity": ai_prefs.get("explanation_verbosity", "Detailed"),
+            "include_examples": ai_prefs.get("include_examples", True),
+            "show_pdf_citations": ai_prefs.get("show_pdf_citations", True),
+            "enable_followup_suggestions": ai_prefs.get("enable_followup_suggestions", True),
             "learning_goals": json.loads(student.learning_goals) if student.learning_goals else [],
             "areas_of_interest": json.loads(student.areas_of_interest) if student.areas_of_interest else [],
             "enrolled_subjects": json.loads(student.enrolled_subjects) if student.enrolled_subjects else []
@@ -190,23 +203,7 @@ class AIAgentOrchestrator:
                     subject_info=subject_info
                 )
 
-        # Step 5: Knowledge Base Retrieval (RAG) for Course-Specific Grounding
-        retrieved_passages = []
-        if action_type in [
-            "explain_concept", "simplify_concept", "notes_qa",
-            "revise_weak_topic", "recommend_resources"
-        ]:
-            active_subj_id = subject_info.get("id") if subject_info else None
-            retrieved_passages = retrieval_engine.search_relevant_chunks(
-                db=db,
-                query=message,
-                student_id=student_id,
-                top_k=3,
-                threshold=0.05,
-                subject_id=active_subj_id
-            )
-
-        # Step 3b: Load recent conversation history for multi-turn conversational context
+        # Step 4b: Load recent conversation history for multi-turn conversational context
         conversation_history = []
         if conversation_id:
             past_msgs = db.query(ChatMessage).filter(
@@ -214,6 +211,38 @@ class AIAgentOrchestrator:
             ).order_by(ChatMessage.timestamp.asc()).all()
             for m in past_msgs[-8:]:
                 conversation_history.append({"sender": m.sender, "content": m.content})
+
+        # Step 5: Knowledge Base Retrieval (RAG) for Course-Specific Grounding
+        retrieved_passages = []
+        if action_type in [
+            "explain_concept", "simplify_concept", "notes_qa",
+            "revise_weak_topic", "recommend_resources"
+        ]:
+            active_subj_id = subject_info.get("id") if subject_info else None
+
+            # Conversational Query Reformulation for Follow-ups
+            retrieval_query = message
+            msg_l = message.lower()
+            if any(w in msg_l for w in [
+                "this topic", "this concept", "about this", "uploaded material",
+                "my notes", "step by step", "step 2", "more simply", "simpler",
+                "example of this", "summarize this", "explain further", "elaborate",
+                "previous answer", "from my notes", "in our notes"
+            ]):
+                for past_turn in reversed(conversation_history):
+                    past_content = past_turn.get("content", "").strip()
+                    if past_turn.get("sender") == "user" and past_content and past_content != message:
+                        retrieval_query = f"{past_content} {message}"
+                        break
+
+            retrieved_passages = retrieval_engine.search_relevant_chunks(
+                db=db,
+                query=retrieval_query,
+                student_id=student_id,
+                top_k=4,
+                threshold=0.28,
+                subject_id=active_subj_id
+            )
 
         # Timing measurement
         start_time = datetime.now()
@@ -287,6 +316,10 @@ class AIAgentOrchestrator:
             ],
             "recommended_next_step": rec_next,
             "response_time_ms": elapsed_ms,
+            "course_grounded": len(retrieved_passages) > 0,
+            "has_course_evidence": len(retrieved_passages) > 0,
+            "coverage_status": "grounded_in_course_materials" if len(retrieved_passages) > 0 else "insufficient_course_evidence",
+            "active_course": f"{subject_info.get('code')}: {subject_info.get('name')}" if subject_info else "Core Curriculum",
         }
 
         # Step 8: Manage Conversation & ChatMessage persistence with strict ownership
@@ -308,7 +341,7 @@ class AIAgentOrchestrator:
                 "document_id": p["document_id"],
                 "filename": p["filename"],
                 "page_number": p["page_number"],
-                "excerpt": p["text"][:200]
+                "excerpt": p.get("snippet") or p["text"][:200]
             }
             for p in retrieved_passages
         ]
@@ -387,10 +420,14 @@ class AIAgentOrchestrator:
         if not all_subjects:
             return {"id": 1, "code": "22AI503", "name": "Machine Learning"}
 
-        if subject_id:
-            subj = next((s for s in all_subjects if s.id == subject_id), None)
-            if subj:
-                return {"id": subj.id, "code": subj.code, "name": subj.name}
+        if subject_id is not None:
+            try:
+                sid = int(subject_id)
+                subj = next((s for s in all_subjects if s.id == sid), None)
+                if subj:
+                    return {"id": subj.id, "code": subj.code, "name": subj.name}
+            except (ValueError, TypeError):
+                pass
 
         if subject_code:
             subj = next((s for s in all_subjects if s.code.upper() == subject_code.upper()), None)
@@ -624,7 +661,7 @@ class AIAgentOrchestrator:
         passages: List[Dict[str, Any]], perf: Dict[str, Any], subject: Optional[Dict[str, Any]],
         conversation_history: Optional[List[Dict[str, str]]] = None, **kwargs
     ) -> Dict[str, Any]:
-        res = llm_service.generate_response(prompt, profile, "explain_concept", passages, perf, conversation_history)
+        res = llm_service.generate_response(prompt, profile, "explain_concept", passages, perf, conversation_history, subject_info=subject)
         res["service_routing"] = {
             "service": "AcademicLLMService & RetrievalEngine",
             "status": "success",
@@ -637,7 +674,7 @@ class AIAgentOrchestrator:
         passages: List[Dict[str, Any]], perf: Dict[str, Any], subject: Optional[Dict[str, Any]],
         conversation_history: Optional[List[Dict[str, str]]] = None, **kwargs
     ) -> Dict[str, Any]:
-        res = llm_service.generate_response(prompt, profile, "simplify_concept", passages, perf, conversation_history)
+        res = llm_service.generate_response(prompt, profile, "simplify_concept", passages, perf, conversation_history, subject_info=subject)
         res["service_routing"] = {
             "service": "AcademicLLMService (Simplification Engine)",
             "status": "success",
@@ -720,7 +757,7 @@ This quiz (ID **#{quiz.id}**) is now active in your student account! You can att
         passages: List[Dict[str, Any]], perf: Dict[str, Any], subject: Optional[Dict[str, Any]],
         conversation_history: Optional[List[Dict[str, str]]] = None, **kwargs
     ) -> Dict[str, Any]:
-        res = llm_service.generate_response(prompt, profile, "revise_weak_topic", passages, perf, conversation_history)
+        res = llm_service.generate_response(prompt, profile, "revise_weak_topic", passages, perf, conversation_history, subject_info=subject)
         weak_focus = perf.get("weak_topics", ["Identified Revision Area"])[0] if perf.get("weak_topics") else "Identified Revision Area"
         res["service_routing"] = {
             "service": "AnalyticsService & RemediationEngine",
@@ -776,7 +813,7 @@ I have routed your request to the **Study Planner Service** and created an activ
                 }
             }
         except Exception as e:
-            fallback_res = llm_service.generate_response(prompt, profile, "create_study_plan", passages, perf, conversation_history)
+            fallback_res = llm_service.generate_response(prompt, profile, "create_study_plan", passages, perf, conversation_history, subject_info=subject)
             fallback_res["service_routing"] = {
                 "service": "StudyPlannerService",
                 "status": "fallback",
@@ -803,7 +840,7 @@ I have routed your request to the **Study Planner Service** and created an activ
                     "course": course_name
                 }
             }
-        res = llm_service.generate_response(prompt, profile, "notes_qa", passages, perf, conversation_history)
+        res = llm_service.generate_response(prompt, profile, "notes_qa", passages, perf, conversation_history, subject_info=subject)
         res["service_routing"] = {
             "service": "KnowledgeRetrievalEngine (RAG)",
             "status": "success",
@@ -817,7 +854,7 @@ I have routed your request to the **Study Planner Service** and created an activ
         passages: List[Dict[str, Any]], perf: Dict[str, Any], subject: Optional[Dict[str, Any]],
         conversation_history: Optional[List[Dict[str, str]]] = None, **kwargs
     ) -> Dict[str, Any]:
-        res = llm_service.generate_response(prompt, profile, "recommend_resources", passages, perf, conversation_history)
+        res = llm_service.generate_response(prompt, profile, "recommend_resources", passages, perf, conversation_history, subject_info=subject)
         res["service_routing"] = {
             "service": "RecommendationEngine & KnowledgeBase",
             "status": "success",

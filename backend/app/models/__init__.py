@@ -15,6 +15,12 @@ from app.models.entities import (
     StudyPlan,
     StudyTask,
     Feedback,
+    FeedbackReply,
+    StorageWarning,
+    StorageCleanupLog,
+    Notification,
+    AuditLog,
+    DocumentExplanation,
 )
 
 __all__ = [
@@ -34,4 +40,10 @@ __all__ = [
     "StudyPlan",
     "StudyTask",
     "Feedback",
+    "FeedbackReply",
+    "StorageWarning",
+    "StorageCleanupLog",
+    "Notification",
+    "AuditLog",
+    "DocumentExplanation",
 ]

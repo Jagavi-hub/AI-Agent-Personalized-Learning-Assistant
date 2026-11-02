@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { useStudent } from '../context/StudentContext';
+import StorageWidget from '../components/StorageWidget';
 
 export default function Dashboard() {
   const { profile } = useStudent();
@@ -84,7 +85,7 @@ export default function Dashboard() {
             }}
           >
             <Sparkles size={13} color="#a5b4fc" />
-            <span>AI-Driven Adaptive Learning System</span>
+            <span>Personalized Study Portal</span>
           </div>
 
           <h1 style={{ fontSize: '1.875rem', color: '#ffffff', marginBottom: '0.5rem', fontWeight: 700 }}>
@@ -138,6 +139,9 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Student Personal Storage Quota Status */}
+      <StorageWidget compact={true} />
+
       {/* Metric Cards Grid */}
       <div className="grid-4">
         {/* Card 1: Average Score */}
@@ -152,7 +156,7 @@ export default function Dashboard() {
             {analytics?.average_score_percentage || 0}%
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
-            Across {analytics?.total_quizzes_taken || 0} completed assessment(s)
+            Across {analytics?.total_quizzes_taken || 0} completed quiz(zes)
           </div>
         </div>
 
@@ -168,7 +172,7 @@ export default function Dashboard() {
             {analytics?.total_quizzes_taken || 0}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
-            Persistent database records
+            Practice tests recorded
           </div>
         </div>
 
@@ -237,10 +241,10 @@ export default function Dashboard() {
             </div>
             <div>
               <div style={{ fontWeight: 600, color: '#92400e', fontSize: '0.95rem' }}>
-                AI Learning Alert: Remediation Required for "{primaryWeakTopic}"
+                Recommended Review: "{primaryWeakTopic}"
               </div>
               <div style={{ fontSize: '0.8125rem', color: '#b45309', marginTop: '0.2rem' }}>
-                Recent diagnostic score ({weakTopics[0]?.mastery_percentage || 40}%) identified conceptual gaps in gradient flow. The AI Agent has retrieved lecture notes and created practice questions.
+                Recent score: {weakTopics[0]?.mastery_percentage || 40}%. Practice questions and notes are ready to help you improve.
               </div>
             </div>
           </div>
@@ -252,7 +256,7 @@ export default function Dashboard() {
               style={{ backgroundColor: '#d97706', color: '#ffffff' }}
             >
               <Sparkles size={14} />
-              Revise with AI Agent
+              Revise Topic
             </button>
             <button
               onClick={() => navigate('/quiz')}
@@ -264,11 +268,11 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Two Column Layout: Recommendations & Subjects */}
-      <div className="grid-2">
-        {/* Left: Recommended Actions */}
-        <div className="card">
-          <div className="card-header">
+      {/* Vertically Stacked Main Sections: 1. Recommended Next Actions, 2. Core Academic Courses */}
+      <div className="dashboard-stacked-container">
+        {/* 1. Recommended Next Actions (100% Width) */}
+        <div className="card dashboard-section">
+          <div className="card-header" style={{ marginBottom: '1.15rem' }}>
             <div>
               <div className="card-title">
                 <Compass size={18} color="var(--primary)" />
@@ -281,63 +285,58 @@ export default function Dashboard() {
             </Link>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <div className="dashboard-recommendations-grid">
             {recommendations.slice(0, 3).map((rec) => (
-              <div
-                key={rec.id}
-                style={{
-                  padding: '1rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--bg-surface-hover)',
-                  border: '1px solid var(--border)',
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  justifyContent: 'space-between',
-                  gap: '0.75rem',
-                }}
-              >
+              <div key={rec.id} className="dashboard-recommendation-card">
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.45rem' }}>
                     <span
                       className={`badge ${
                         rec.priority === 'High' ? 'badge-danger' : 'badge-primary'
                       }`}
+                      style={{ fontSize: '0.7rem', padding: '0.18rem 0.5rem', fontWeight: 600 }}
                     >
                       {rec.priority} Priority
                     </span>
-                    <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                      {rec.title}
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-light)' }}>
+                      AI Suggested
                     </span>
                   </div>
-                  <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.35rem', lineHeight: 1.35 }}>
+                    {rec.title}
+                  </div>
+                  <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: '0.5rem' }}>
                     {rec.reason}
                   </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--primary)', marginTop: '0.4rem', fontWeight: 500 }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 500 }}>
                     💡 Action: {rec.suggested_action}
                   </div>
                 </div>
 
-                <button
-                  onClick={() => navigate('/assistant')}
-                  className="btn btn-sm btn-accent"
-                  style={{ flexShrink: 0 }}
-                >
-                  Start
-                </button>
+                <div style={{ marginTop: 'auto', paddingTop: '0.85rem' }}>
+                  <button
+                    onClick={() => navigate('/assistant')}
+                    className="btn btn-sm btn-accent"
+                    style={{ width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', height: '34px' }}
+                  >
+                    <Sparkles size={13} />
+                    Start Action
+                  </button>
+                </div>
               </div>
             ))}
 
             {recommendations.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+              <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
                 No pending recommendations. Take a quiz to generate new recommendations!
               </div>
             )}
           </div>
         </div>
 
-        {/* Right: Enrolled Academic Courses */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-          <div className="card-header">
+        {/* 2. Core Academic Courses (7 Available) (100% Width) */}
+        <div className="card dashboard-section">
+          <div className="card-header" style={{ marginBottom: '1.15rem' }}>
             <div>
               <div className="card-title">
                 <BookOpen size={18} color="var(--primary)" />
@@ -350,16 +349,7 @@ export default function Dashboard() {
             </Link>
           </div>
 
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.85rem',
-              maxHeight: '560px',
-              overflowY: 'auto',
-              paddingRight: '4px',
-            }}
-          >
+          <div className="dashboard-courses-grid">
             {subjects.map((subj) => {
               const docCount = subj.documents?.length || (subj.document_filename ? 1 : 0);
               const docLabel =
@@ -368,73 +358,161 @@ export default function Dashboard() {
                   : subj.document_filename || subj.documents?.[0]?.filename || 'Curriculum Material';
 
               return (
-                <div
-                  key={subj.id}
-                  style={{
-                    padding: '1rem',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--bg-surface-hover)',
-                    border: '1px solid var(--border)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.5rem',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span className="badge badge-primary">{subj.code}</span>
-                      <span style={{ fontSize: '0.925rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                        {subj.name}
+                <div key={subj.id} className="dashboard-course-card">
+                  {/* 1. Header: Code, Chunks, and Title */}
+                  <div style={{ marginBottom: '0.45rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem', marginBottom: '0.35rem' }}>
+                      <span className="badge badge-primary" style={{ fontSize: '0.725rem', padding: '0.2rem 0.5rem', fontWeight: 600 }}>
+                        {subj.code}
+                      </span>
+                      <span
+                        className={`badge ${subj.num_chunks > 0 ? 'badge-success' : 'badge-warning'}`}
+                        style={{ fontSize: '0.685rem', padding: '0.18rem 0.45rem', flexShrink: 0, whiteSpace: 'nowrap' }}
+                      >
+                        ● {subj.num_chunks || 0} Chunks Indexed
                       </span>
                     </div>
-                    <span
-                      className={`badge ${subj.num_chunks > 0 ? 'badge-success' : 'badge-warning'}`}
-                      style={{ fontSize: '0.7rem' }}
+                    <h3
+                      style={{
+                        fontSize: '0.925rem',
+                        fontWeight: 600,
+                        color: 'var(--text-main)',
+                        lineHeight: 1.35,
+                        margin: 0,
+                        minHeight: '2.5rem',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                        wordBreak: 'break-word',
+                      }}
+                      title={subj.name}
                     >
-                      ● {subj.num_chunks || 0} Chunks Indexed
-                    </span>
+                      {subj.name}
+                    </h3>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', maxWidth: '75%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={docLabel}>
-                      <FileText size={13} color="var(--primary)" style={{ flexShrink: 0 }} />
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {/* 2. Source Material & Credits */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '0.45rem',
+                      fontSize: '0.725rem',
+                      color: 'var(--text-muted)',
+                      marginBottom: '0.45rem',
+                      paddingBottom: '0.45rem',
+                      borderBottom: '1px solid var(--border)',
+                      minHeight: '1.75rem',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.3rem',
+                        minWidth: 0,
+                        flex: 1,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title={docLabel}
+                    >
+                      <FileText size={12} color="var(--primary)" style={{ flexShrink: 0 }} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         Source: <strong>{docLabel}</strong>
                       </span>
                     </div>
-                    <span>{subj.credits} Credits • {subj.semester}</span>
+                    <span style={{ flexShrink: 0, fontSize: '0.725rem', whiteSpace: 'nowrap' }}>
+                      {subj.credits} Credits • {subj.semester}
+                    </span>
                   </div>
 
-                  {subj.topics && subj.topics.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.2rem' }}>
-                      {subj.topics.slice(0, 3).map((top, idx) => (
-                        <span
-                          key={idx}
-                          style={{
-                            fontSize: '0.6875rem',
-                            padding: '0.15rem 0.45rem',
-                            borderRadius: '4px',
-                            backgroundColor: 'var(--bg-surface)',
-                            border: '1px solid var(--border)',
-                            color: 'var(--text-muted)',
-                          }}
-                        >
-                          {top}
-                        </span>
-                      ))}
-                      {subj.topics.length > 3 && (
-                        <span style={{ fontSize: '0.6875rem', color: 'var(--text-light)', alignSelf: 'center' }}>
-                          +{subj.topics.length - 3} more
-                        </span>
-                      )}
-                    </div>
-                  )}
+                  {/* 3. Topics Chips */}
+                  <div
+                    style={{
+                      marginBottom: '0.65rem',
+                      minHeight: '2.2rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '0.3rem',
+                    }}
+                  >
+                    {subj.topics && subj.topics.length > 0 ? (
+                      <>
+                        {subj.topics.slice(0, 3).map((top, idx) => (
+                          <span
+                            key={idx}
+                            style={{
+                              fontSize: '0.675rem',
+                              padding: '0.15rem 0.4rem',
+                              borderRadius: '4px',
+                              backgroundColor: 'var(--bg-surface)',
+                              border: '1px solid var(--border)',
+                              color: 'var(--text-main)',
+                              maxWidth: '160px',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              display: 'inline-block',
+                            }}
+                            title={top}
+                          >
+                            {top}
+                          </span>
+                        ))}
+                        {subj.topics.length > 3 && (
+                          <span
+                            style={{
+                              fontSize: '0.675rem',
+                              padding: '0.15rem 0.4rem',
+                              borderRadius: '4px',
+                              backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                              border: '1px solid rgba(37, 99, 235, 0.2)',
+                              color: 'var(--primary)',
+                              fontWeight: 500,
+                              whiteSpace: 'nowrap',
+                            }}
+                            title={subj.topics.slice(3).join(', ')}
+                          >
+                            +{subj.topics.length - 3} more
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span style={{ fontSize: '0.725rem', color: 'var(--text-light)', fontStyle: 'italic', padding: '0.15rem 0' }}>
+                        Syllabus topics indexing pending
+                      </span>
+                    )}
+                  </div>
 
-                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem' }}>
+                  {/* 4. Action Buttons (Anchored to Bottom) */}
+                  <div
+                    style={{
+                      marginTop: 'auto',
+                      paddingTop: '0.75rem',
+                      display: 'flex',
+                      gap: '0.5rem',
+                    }}
+                  >
                     <button
                       onClick={() => navigate(`/assistant?subject=${subj.id}`)}
                       className="btn btn-sm btn-primary"
-                      style={{ flex: 1, padding: '0.4rem 0.5rem', fontSize: '0.75rem' }}
+                      style={{
+                        flex: 1,
+                        height: '34px',
+                        padding: '0 0.5rem',
+                        fontSize: '0.75rem',
+                        fontWeight: 500,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.35rem',
+                        whiteSpace: 'nowrap',
+                      }}
                     >
                       <Sparkles size={12} />
                       Ask AI Tutor
@@ -442,7 +520,18 @@ export default function Dashboard() {
                     <button
                       onClick={() => navigate(`/quiz?subject=${subj.id}`)}
                       className="btn btn-sm btn-secondary"
-                      style={{ flex: 1, padding: '0.4rem 0.5rem', fontSize: '0.75rem' }}
+                      style={{
+                        flex: 1,
+                        height: '34px',
+                        padding: '0 0.5rem',
+                        fontSize: '0.75rem',
+                        fontWeight: 500,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.35rem',
+                        whiteSpace: 'nowrap',
+                      }}
                     >
                       <GraduationCap size={12} />
                       Practice Quiz
@@ -453,7 +542,7 @@ export default function Dashboard() {
             })}
 
             {subjects.length === 0 && !loading && (
-              <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+              <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
                 No courses found. Visit Knowledge Base to upload curriculum materials!
               </div>
             )}

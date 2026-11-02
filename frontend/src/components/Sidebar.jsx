@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
   Sparkles,
@@ -14,40 +14,63 @@ import {
   ChevronRight,
   BrainCircuit,
   Calendar,
+  Shield,
+  MessageSquare,
+  X,
+  FileSearch,
 } from 'lucide-react';
 import { useStudent } from '../context/StudentContext';
 
 const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/assistant', label: 'AI Learning Assistant', icon: Sparkles, badge: 'Agent' },
+  { path: '/pdf-explainer', label: 'Explainer', icon: FileSearch },
   { path: '/my-learning', label: 'My Learning', icon: BookOpen },
   { path: '/quiz', label: 'Quiz & Practice', icon: GraduationCap },
   { path: '/study-planner', label: 'Study Planner', icon: Calendar },
   { path: '/recommendations', label: 'Recommendations', icon: Compass },
   { path: '/knowledge-base', label: 'Knowledge Base', icon: FileText },
   { path: '/analytics', label: 'Progress Analytics', icon: BarChart3 },
+  { path: '/feedback', label: 'Feedback & Support', icon: MessageSquare },
   { path: '/profile', label: 'Student Profile', icon: User },
   { path: '/settings', label: 'Settings', icon: Settings },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ mobileOpen = false, setMobileOpen = () => {} }) {
   const [collapsed, setCollapsed] = useState(false);
   const { profile } = useStudent();
+  const location = useLocation();
+
+  // Automatically close mobile drawer when navigation route changes
+  useEffect(() => {
+    if (mobileOpen && setMobileOpen) {
+      setMobileOpen(false);
+    }
+  }, [location.pathname]);
 
   return (
-    <aside
-      style={{
-        width: collapsed ? '72px' : '260px',
-        backgroundColor: 'var(--bg-sidebar)',
-        color: '#f8fafc',
-        display: 'flex',
-        flexDirection: 'column',
-        transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-        borderRight: '1px solid rgba(255, 255, 255, 0.08)',
-        zIndex: 50,
-        flexShrink: 0,
-      }}
-    >
+    <>
+      {mobileOpen && (
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setMobileOpen && setMobileOpen(false)}
+          aria-label="Close menu backdrop"
+        />
+      )}
+      <aside
+        className={`app-sidebar ${mobileOpen ? 'mobile-open' : ''}`}
+        style={{
+          width: collapsed ? '72px' : '260px',
+          backgroundColor: 'var(--bg-sidebar)',
+          color: '#f8fafc',
+          display: 'flex',
+          flexDirection: 'column',
+          transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+          borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+          zIndex: 50,
+          flexShrink: 0,
+        }}
+      >
       {/* Brand Header */}
       <div
         style={{
@@ -123,6 +146,7 @@ export default function Sidebar() {
             <NavLink
               key={item.path}
               to={item.path}
+              onClick={() => setMobileOpen && setMobileOpen(false)}
               title={collapsed ? item.label : undefined}
               style={({ isActive }) => ({
                 display: 'flex',
@@ -162,6 +186,39 @@ export default function Sidebar() {
             </NavLink>
           );
         })}
+
+        {/* Discrete Portal Switcher strictly for verified faculty/admin accounts */}
+        {(profile?.is_admin || profile?.role === 'admin') && (
+          <div style={{ marginTop: 'auto', paddingTop: '0.75rem', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
+            <NavLink
+              to="/admin"
+              title={collapsed ? 'Switch to Admin Portal' : undefined}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem',
+                padding: collapsed ? '0.75rem 0' : '0.65rem 0.85rem',
+                justifyContent: collapsed ? 'center' : 'flex-start',
+                borderRadius: '8px',
+                color: '#f87171',
+                backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                textDecoration: 'none',
+                fontWeight: 600,
+                fontSize: '0.825rem',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <Shield size={18} style={{ flexShrink: 0, color: '#f87171' }} />
+              {!collapsed && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                  <span>Switch to Admin Portal</span>
+                  <span style={{ fontSize: '0.85rem' }}>→</span>
+                </div>
+              )}
+            </NavLink>
+          </div>
+        )}
       </nav>
 
       {/* Collapse Toggle for Collapsed state */}
@@ -223,5 +280,6 @@ export default function Sidebar() {
         </div>
       )}
     </aside>
+    </>
   );
 }

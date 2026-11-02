@@ -1,27 +1,31 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, Link } from 'react-router-dom';
-import { Sun, Moon, Bell, CheckCircle2, AlertCircle, Sparkles, LogOut } from 'lucide-react';
+import { Sun, Moon, Bell, CheckCircle2, AlertCircle, Sparkles, LogOut, Menu } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useStudent } from '../context/StudentContext';
 import { api } from '../services/api';
+import NotificationCenter from './NotificationCenter';
 
 const ROUTE_TITLES = {
   '/': 'Academic Dashboard',
   '/dashboard': 'Academic Dashboard',
-  '/assistant': 'AI Learning Assistant & Agent',
-  '/my-learning': 'My Learning & Curriculum',
-  '/learning': 'My Learning & Curriculum',
-  '/quiz': 'Quiz & Adaptive Practice',
-  '/study-planner': 'Adaptive Study Planner',
-  '/recommendations': 'Personalized Recommendations',
-  '/knowledge-base': 'Knowledge Base & Retrieval (RAG)',
-  '/analytics': 'Progress Analytics & Mastery',
-  '/progress': 'Progress Analytics & Mastery',
+  '/assistant': 'AI Learning Assistant',
+  '/pdf-explainer': 'AI Explainer',
+  '/my-learning': 'My Learning',
+  '/learning': 'My Learning',
+  '/quiz': 'Quiz & Practice',
+  '/study-planner': 'Study Planner',
+  '/recommendations': 'Recommendations',
+  '/knowledge-base': 'Knowledge Base',
+  '/analytics': 'Progress Analytics',
+  '/progress': 'Progress Analytics',
   '/profile': 'Student Profile',
-  '/settings': 'System Settings',
+  '/settings': 'Settings',
+  '/feedback': 'Feedback & Support',
+  '/admin': 'Admin Console',
 };
 
-export default function Topbar() {
+export default function Topbar({ onToggleMobileMenu }) {
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { profile, logout } = useStudent();
@@ -37,10 +41,13 @@ export default function Topbar() {
       });
   }, []);
 
-  const pageTitle = ROUTE_TITLES[location.pathname] || 'LearnAI Platform';
+  const pageTitle =
+    ROUTE_TITLES[location.pathname] ||
+    (location.pathname.startsWith('/pdf-explainer') ? 'AI Explainer' : 'LearnAI Platform');
 
   return (
     <header
+      className="app-topbar"
       style={{
         height: '70px',
         backgroundColor: 'var(--bg-surface)',
@@ -55,14 +62,36 @@ export default function Topbar() {
         transition: 'background-color 0.2s ease, border-color 0.2s ease',
       }}
     >
-      {/* Title & Breadcrumbs */}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-          <span>LearnAI</span>
-          <span>/</span>
-          <span style={{ color: 'var(--primary)', fontWeight: 500 }}>{pageTitle}</span>
+      {/* Title & Breadcrumbs + Mobile Menu Toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <button
+          type="button"
+          className="mobile-menu-btn"
+          onClick={onToggleMobileMenu}
+          aria-label="Toggle Navigation Menu"
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'var(--text-main)',
+            cursor: 'pointer',
+            padding: '6px',
+            borderRadius: '6px',
+            display: 'none',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Menu size={22} />
+        </button>
+
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            <span>LearnAI</span>
+            <span>/</span>
+            <span style={{ color: 'var(--primary)', fontWeight: 500 }}>{pageTitle}</span>
+          </div>
+          <h1 style={{ fontSize: '1.25rem', marginTop: '0.1rem' }}>{pageTitle}</h1>
         </div>
-        <h1 style={{ fontSize: '1.25rem', marginTop: '0.1rem' }}>{pageTitle}</h1>
       </div>
 
       {/* Right Controls */}
@@ -109,38 +138,8 @@ export default function Topbar() {
           {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
         </button>
 
-        {/* Notifications Icon */}
-        <Link
-          to="/recommendations"
-          style={{
-            background: 'var(--bg-surface-hover)',
-            border: '1px solid var(--border)',
-            color: 'var(--text-main)',
-            width: '38px',
-            height: '38px',
-            borderRadius: '10px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            position: 'relative',
-            textDecoration: 'none',
-          }}
-          title="Review Active Recommendations"
-        >
-          <Bell size={18} />
-          <span
-            style={{
-              position: 'absolute',
-              top: '7px',
-              right: '7px',
-              width: '8px',
-              height: '8px',
-              backgroundColor: 'var(--primary)',
-              borderRadius: '50%',
-            }}
-          />
-        </Link>
+        {/* In-App Notifications Center */}
+        <NotificationCenter />
 
         {/* Student Avatar button linking to Profile */}
         <Link

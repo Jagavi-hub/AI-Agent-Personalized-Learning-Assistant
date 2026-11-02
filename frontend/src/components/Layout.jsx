@@ -7,12 +7,13 @@ import { CheckCircle2, AlertCircle, Info } from 'lucide-react';
 
 export default function Layout() {
   const { notification } = useStudent();
+  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
   return (
     <div className="app-container">
-      <Sidebar />
+      <Sidebar mobileOpen={mobileMenuOpen} setMobileOpen={setMobileMenuOpen} />
       <div className="main-content">
-        <Topbar />
+        <Topbar onToggleMobileMenu={() => setMobileMenuOpen((prev) => !prev)} />
 
         {/* Global Toast Notification */}
         {notification && (

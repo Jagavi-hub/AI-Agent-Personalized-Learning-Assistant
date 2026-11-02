@@ -307,6 +307,63 @@ COURSE_ALIASES = {
 class QuizService:
     """Handles course-grounded quiz generation, server-side scoring, analytics, and remediation."""
 
+    def _generate_questions_from_chunks(
+        self,
+        chunks: List[Dict[str, Any]],
+        needed: int,
+        topic: str,
+        difficulty: str,
+        course_name: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Synthesize multiple-choice questions grounded directly in the text
+        of the retrieved academic course chunks.
+        """
+        import re
+        generated = []
+        for c in chunks:
+            if len(generated) >= needed:
+                break
+            text = c.get("text", "")
+            page = c.get("page_number", 1)
+            filename = c.get("filename", course_name)
+
+            sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if len(s.strip()) > 45]
+            for s in sentences:
+                if len(generated) >= needed:
+                    break
+                s_lower = s.lower()
+                if any(k in s_lower for k in ["is ", "are ", "defined as", "provides", "consists of", "allows", "enables", "requires", "architecture", "mechanism", "protocol", "layer", "model", "characteristics"]):
+                    clean_s = re.sub(r'^[•\-\*\d\.\s]+', '', s).strip()
+                    if len(clean_s) < 35 or len(clean_s) > 260:
+                        continue
+                    if clean_s.startswith("http") or clean_s.startswith("Figure") or clean_s.startswith("Table"):
+                        continue
+
+                    q_text = f"According to the official {course_name} curriculum for '{topic}', which statement is correct?"
+                    correct_opt = clean_s
+                    distractors = [
+                        f"It requires eliminating all boundary checks and operational validation in {topic}.",
+                        f"It restricts all data operations exclusively to single-threaded unencrypted memory buffers.",
+                        f"It depends entirely on manual operator intervention for every cycle regardless of state."
+                    ]
+                    all_options = [correct_opt] + distractors
+                    random.shuffle(all_options)
+                    letters = ["A", "B", "C", "D"]
+                    corr_letter = letters[all_options.index(correct_opt)]
+
+                    generated.append({
+                        "question_text": q_text,
+                        "option_a": all_options[0],
+                        "option_b": all_options[1],
+                        "option_c": all_options[2],
+                        "option_d": all_options[3],
+                        "correct_option": corr_letter,
+                        "explanation": f"Grounded in verified course material ({filename}, Page {page}): {clean_s}",
+                        "topic": topic
+                    })
+        return generated
+
     def _generate_topic_grounded_fallback_question(
         self,
         topic: str,
@@ -377,6 +434,10 @@ class QuizService:
             target_doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == document_id).first()
             if not target_doc:
                 raise ValueError(f"Document with ID {document_id} not found.")
+            # Multi-tenant document authorization:
+            is_shared = target_doc.is_course_material or ("course_materials" in (target_doc.file_path or ""))
+            if not is_shared and target_doc.student_id != student_id:
+                raise ValueError("Unauthorized: You do not have permission to generate quizzes from this private document.")
             if target_doc.subject_id:
                 subject = db.query(Subject).filter(Subject.id == target_doc.subject_id).first()
 
@@ -389,11 +450,22 @@ class QuizService:
                 if s.name.lower() in topic.lower() or topic.lower() in s.name.lower() or s.code.lower() in topic.lower():
                     subject = s
                     break
-        if not subject:
-            subject = db.query(Subject).first()
+            if not subject:
+                topic_l = topic.lower()
+                for alias_k, canonical in COURSE_ALIASES.items():
+                    if alias_k in topic_l:
+                        for s in db.query(Subject).all():
+                            if canonical in s.name.lower() or canonical in s.code.lower():
+                                subject = s
+                                break
+                    if subject:
+                        break
 
         if not subject:
-            raise ValueError("No curriculum courses found in database. Please initialize courses.")
+            raise ValueError(
+                f"No curriculum course or indexed material matched topic '{topic}'. "
+                f"Please select a specific course or upload relevant materials first."
+            )
 
         # 2. Strict Grounding: Verify that course/document material is indexed
         if document_id and target_doc:
@@ -429,6 +501,7 @@ class QuizService:
         context_chunks = retrieval_engine.search_relevant_chunks(
             db=db,
             query=f"{topic} {difficulty}",
+            student_id=student_id,
             top_k=5,
             subject_id=subject.id,
             document_id=document_id
@@ -450,8 +523,8 @@ class QuizService:
                 selected_raw = None
 
         if not selected_raw:
-            # Fall back to authentic course question repository
-            target_key = "machine learning"
+            # Fall back to authentic course question repository or chunk synthesis
+            target_key = None
             s_name_l = subject.name.lower()
             s_code_l = subject.code.lower()
             topic_l = (topic or "").lower()
@@ -461,15 +534,34 @@ class QuizService:
                     target_key = canonical
                     break
 
-            pool = COURSE_QUESTION_REPOSITORY.get(target_key, [])
+            pool = COURSE_QUESTION_REPOSITORY.get(target_key, []) if target_key else []
 
             # Sample questions from matched course pool
             if pool:
-                selected_raw = random.sample(pool, min(num_questions, len(pool)))
+                topic_matched = [q for q in pool if q.get("topic", "").lower() in topic_l or topic_l in q.get("topic", "").lower()]
+                if topic_matched:
+                    selected_raw = random.sample(topic_matched, min(num_questions, len(topic_matched)))
+                    remaining = [q for q in pool if q not in selected_raw]
+                    needed = num_questions - len(selected_raw)
+                    if needed > 0 and remaining:
+                        selected_raw.extend(random.sample(remaining, min(needed, len(remaining))))
+                else:
+                    selected_raw = random.sample(pool, min(num_questions, len(pool)))
             else:
                 selected_raw = []
 
-            # If more questions are needed, synthesize grounded questions
+            # If more questions are needed and chunks are available, synthesize directly from chunks
+            if len(selected_raw) < num_questions and context_chunks:
+                from_chunks = self._generate_questions_from_chunks(
+                    chunks=context_chunks,
+                    needed=num_questions - len(selected_raw),
+                    topic=topic or subject.name,
+                    difficulty=difficulty,
+                    course_name=f"{subject.code}: {subject.name}"
+                )
+                selected_raw.extend(from_chunks)
+
+            # If still needed, synthesize topic grounded fallback questions
             while len(selected_raw) < num_questions:
                 idx = len(selected_raw) + 1
                 selected_raw.append(self._generate_topic_grounded_fallback_question(

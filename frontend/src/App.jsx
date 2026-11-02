@@ -4,7 +4,9 @@ import { ThemeProvider } from './context/ThemeContext';
 import { StudentProvider, useStudent } from './context/StudentContext';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
+import { isAdminDemoMode } from './services/api';
 
+// Student Portal Pages
 import Dashboard from './pages/Dashboard';
 import Assistant from './pages/Assistant';
 import MyLearning from './pages/MyLearning';
@@ -15,14 +17,30 @@ import KnowledgeBase from './pages/KnowledgeBase';
 import Analytics from './pages/Analytics';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
+import FeedbackSupport from './pages/FeedbackSupport';
+import PdfExplainer from './pages/PdfExplainer';
 
+// Authentication Pages
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
 import Onboarding from './pages/Onboarding';
+import AdminLogin from './pages/AdminLogin';
+
+// Independent Admin Portal Shell & Dedicated Pages
+import AdminLayout from './components/admin/AdminLayout';
+import AdminOverview from './pages/admin/AdminOverview';
+import AdminUsers from './pages/admin/AdminUsers';
+import AdminUserDetail from './pages/admin/AdminUserDetail';
+import AdminStorage from './pages/admin/AdminStorage';
+import AdminAlerts from './pages/admin/AdminAlerts';
+import AdminFeedback from './pages/admin/AdminFeedback';
+import AdminSystemHealth from './pages/admin/AdminSystemHealth';
+import AdminAudit from './pages/admin/AdminAudit';
+import AdminSettings from './pages/admin/AdminSettings';
 
 function ProtectedRoute({ children, requireOnboarded = true }) {
-  const { isAuthenticated, isOnboarded, loading } = useStudent();
+  const { isAuthenticated, isOnboarded, profile, loading } = useStudent();
 
   if (loading) {
     return (
@@ -58,7 +76,8 @@ function ProtectedRoute({ children, requireOnboarded = true }) {
     return <Navigate to="/login" replace />;
   }
 
-  if (requireOnboarded && !isOnboarded) {
+  // Administrators viewing the student portal bypass onboarding
+  if (requireOnboarded && !isOnboarded && !profile?.is_admin && profile?.role !== 'admin') {
     return <Navigate to="/onboarding" replace />;
   }
 
@@ -66,15 +85,44 @@ function ProtectedRoute({ children, requireOnboarded = true }) {
 }
 
 function PublicRoute({ children }) {
-  const { isAuthenticated, isOnboarded, loading } = useStudent();
+  const { isAuthenticated, isOnboarded, profile, loading } = useStudent();
 
   if (loading) return null;
 
   if (isAuthenticated) {
+    if (profile?.is_admin || profile?.role === 'admin') {
+      return <Navigate to="/admin" replace />;
+    }
     if (!isOnboarded) {
       return <Navigate to="/onboarding" replace />;
     }
-    return <Navigate to="/" replace />;
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return children;
+}
+
+function AdminRoute({ children }) {
+  const { profile, isAuthenticated, loading } = useStudent();
+
+  if (loading) return null;
+
+  // Authenticated non-admin students are strictly forbidden from administrative portal
+  if (isAuthenticated && !profile?.is_admin && profile?.role !== 'admin') {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  // Permit evaluation & testing in isolated Admin Demo Sandbox for guests/evaluators
+  if (isAdminDemoMode()) {
+    return children;
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/admin/login" replace />;
+  }
+
+  if (!profile?.is_admin && profile?.role !== 'admin') {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return children;
@@ -86,7 +134,7 @@ export default function App() {
       <StudentProvider>
         <BrowserRouter>
           <Routes>
-            {/* Public Authentication Routes */}
+            {/* Public Student Authentication Routes */}
             <Route
               path="/login"
               element={
@@ -112,6 +160,16 @@ export default function App() {
               }
             />
 
+            {/* Dedicated Admin Portal Authentication */}
+            <Route
+              path="/admin/login"
+              element={
+                <PublicRoute>
+                  <AdminLogin />
+                </PublicRoute>
+              }
+            />
+
             {/* Student Onboarding Route */}
             <Route
               path="/onboarding"
@@ -122,7 +180,7 @@ export default function App() {
               }
             />
 
-            {/* Protected Application Routes */}
+            {/* 1. STUDENT PORTAL — Dedicated Student Layout & Protected Learning Routes */}
             <Route
               path="/"
               element={
@@ -136,6 +194,8 @@ export default function App() {
               <Route index element={<Dashboard />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="assistant" element={<Assistant />} />
+              <Route path="pdf-explainer" element={<PdfExplainer />} />
+              <Route path="pdf-explainer/:documentId" element={<PdfExplainer />} />
               <Route path="my-learning" element={<MyLearning />} />
               <Route path="learning" element={<MyLearning />} />
               <Route path="quiz" element={<QuizPractice />} />
@@ -146,7 +206,33 @@ export default function App() {
               <Route path="progress" element={<Analytics />} />
               <Route path="profile" element={<Profile />} />
               <Route path="settings" element={<Settings />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="feedback" element={<FeedbackSupport />} />
+              <Route path="support" element={<Navigate to="/feedback" replace />} />
+              <Route path="feedback-support" element={<Navigate to="/feedback" replace />} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Route>
+
+            {/* 2. ADMIN PORTAL — Independent Administrative Shell & Management Sub-Routes */}
+            <Route
+              path="/admin"
+              element={
+                <AdminRoute>
+                  <ErrorBoundary>
+                    <AdminLayout />
+                  </ErrorBoundary>
+                </AdminRoute>
+              }
+            >
+              <Route index element={<AdminOverview />} />
+              <Route path="users" element={<AdminUsers />} />
+              <Route path="users/:userId" element={<AdminUserDetail />} />
+              <Route path="storage" element={<AdminStorage />} />
+              <Route path="alerts" element={<AdminAlerts />} />
+              <Route path="feedback" element={<AdminFeedback />} />
+              <Route path="system-health" element={<AdminSystemHealth />} />
+              <Route path="audit" element={<AdminAudit />} />
+              <Route path="settings" element={<AdminSettings />} />
+              <Route path="*" element={<Navigate to="/admin" replace />} />
             </Route>
           </Routes>
         </BrowserRouter>

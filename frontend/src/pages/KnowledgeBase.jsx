@@ -11,9 +11,11 @@ import {
   Layers,
   Sparkles,
   BookOpen,
+  Download,
 } from 'lucide-react';
 import { api } from '../services/api';
 import { useStudent } from '../context/StudentContext';
+import StorageWidget from '../components/StorageWidget';
 
 export default function KnowledgeBase() {
   const { showNotification } = useStudent();
@@ -95,7 +97,7 @@ export default function KnowledgeBase() {
         setNewCourseName('');
         setNewCourseCode('');
       }
-      showNotification(`"${file.name}" indexed successfully with ${created.num_chunks} chunks!`, 'success');
+      showNotification(`"${file.name}" uploaded successfully!`, 'success');
     } catch (err) {
       showNotification(err.message || 'Failed to upload document', 'error');
     } finally {
@@ -105,7 +107,7 @@ export default function KnowledgeBase() {
   };
 
   const handleDelete = async (docId, filename) => {
-    if (!window.confirm(`Delete "${filename}" and purge all associated semantic chunks?`)) return;
+    if (!window.confirm(`Are you sure you want to delete "${filename}"?`)) return;
 
     try {
       await api.deleteDocument(docId);
@@ -139,11 +141,14 @@ export default function KnowledgeBase() {
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
       {/* Header */}
       <div>
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Course Knowledge Base & Retrieval (RAG)</h1>
+        <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Course Materials & Knowledge Base</h1>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginTop: '0.2rem' }}>
-          Grounding AI responses, quizzes, and agent reasoning in curriculum courses and authentic syllabus materials.
+          Upload and search course materials for AI tutoring, practice quizzes, and study questions.
         </p>
       </div>
+
+      {/* Storage Quota & Warnings Monitor */}
+      <StorageWidget />
 
       {/* Upload Zone & Stats Card */}
       <div className="grid-2">
@@ -153,7 +158,7 @@ export default function KnowledgeBase() {
             <div>
               <div className="card-title">
                 <Upload size={18} color="var(--primary)" />
-                Ingest Academic Material
+                Upload Course Material
               </div>
               <div className="card-desc">Supported formats: PDF, TXT (Max 20 MB)</div>
             </div>
@@ -161,7 +166,7 @@ export default function KnowledgeBase() {
 
           <div style={{ marginBottom: '1rem' }}>
             <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.35rem', display: 'block' }}>
-              Assign to Academic Course:
+              Course:
             </label>
             <select
               value={uploadSubjectId}
@@ -175,7 +180,7 @@ export default function KnowledgeBase() {
                   {s.code}: {s.name} ({s.documents?.length || 0} {s.documents?.length === 1 ? 'doc' : 'docs'})
                 </option>
               ))}
-              <option value="__new__">+ Create New Academic Course...</option>
+              <option value="__new__">+ Create New Course...</option>
             </select>
 
             {uploadSubjectId === '__new__' && (
@@ -256,10 +261,10 @@ export default function KnowledgeBase() {
               </div>
               <div>
                 <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                  {uploading ? 'Processing & Chunking Document...' : 'Click or Drag & Drop Academic Document'}
+                  {uploading ? 'Processing Document...' : 'Click or Drag & Drop Course Document'}
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                  Text will be parsed into overlapping semantic windows and indexed for TF-IDF vector retrieval.
+                  Documents are securely processed for course Q&A and practice tests.
                 </div>
               </div>
             </div>
@@ -272,9 +277,9 @@ export default function KnowledgeBase() {
             <div>
               <div className="card-title">
                 <Cpu size={18} color="var(--primary)" />
-                RAG Pipeline Architecture
+                How Course Material Powers LearnAI
               </div>
-              <div className="card-desc">Grounding AI responses in authentic course content</div>
+              <div className="card-desc">Grounding AI tutoring in your class syllabus</div>
             </div>
           </div>
 
@@ -285,10 +290,10 @@ export default function KnowledgeBase() {
               </div>
               <div>
                 <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                  1. Extraction & Window Chunking
+                  1. Text Processing
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  PyPDF extracts text page-by-page from the 4 academic PDFs. Text is segmented into 300-word chunks with 50-word overlap to preserve context across boundaries.
+                  Notes and textbooks are securely indexed for each of your enrolled courses.
                 </div>
               </div>
             </div>
@@ -299,10 +304,10 @@ export default function KnowledgeBase() {
               </div>
               <div>
                 <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                  2. TF-IDF Vector Retrieval & Cosine Distance
+                  2. Smart Search
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  Chunks are indexed using scikit-learn TF-IDF n-gram vectors (1-2 ngrams, 5000 features) with cosine distance metrics, providing sub-millisecond course-isolated retrieval.
+                  Relevant course passages are matched whenever you ask questions or take quizzes.
                 </div>
               </div>
             </div>
@@ -313,10 +318,10 @@ export default function KnowledgeBase() {
               </div>
               <div>
                 <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                  3. Source-Aware Grounding & Course Isolation
+                  3. Syllabus Grounding
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  Relevant passages are filtered strictly to the selected course. Answers cite the exact PDF file, unit, and page numbers.
+                  AI explanations cite specific pages and units from your official course materials.
                 </div>
               </div>
             </div>
@@ -330,9 +335,9 @@ export default function KnowledgeBase() {
           <div>
             <div className="card-title">
               <Search size={18} color="var(--primary)" />
-              Semantic Search Tester (Live Course RAG Verification)
+              Search Course Materials
             </div>
-            <div className="card-desc">Test real-time passage retrieval against the 4 indexed course PDFs</div>
+            <div className="card-desc">Preview matched study passages and review source excerpts</div>
           </div>
         </div>
 
@@ -476,14 +481,24 @@ export default function KnowledgeBase() {
                     {doc.file_size ? `${(doc.file_size / 1024).toFixed(1)} KB` : 'N/A'}
                   </td>
                   <td style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>
-                    <button
-                      onClick={() => handleDelete(doc.id, doc.filename)}
-                      className="btn btn-sm"
-                      style={{ color: 'var(--danger)', background: 'transparent' }}
-                      title="Delete document"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <button
+                        onClick={() => api.downloadDocumentFile(doc.id, doc.filename)}
+                        className="btn btn-sm"
+                        style={{ color: 'var(--primary)', background: 'transparent' }}
+                        title="Download document file"
+                      >
+                        <Download size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(doc.id, doc.filename)}
+                        className="btn btn-sm"
+                        style={{ color: 'var(--danger)', background: 'transparent' }}
+                        title="Delete document"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -92,6 +92,17 @@ export default function QuizPractice() {
             setSelectedTopic(targetSubj.name);
           }
         }
+
+        // Apply saved quiz preferences if present
+        try {
+          const userSettings = await api.getSettings();
+          if (userSettings?.quiz_preferences?.default_num_questions) {
+            setNumQuestions(userSettings.quiz_preferences.default_num_questions);
+          }
+          if (userSettings?.quiz_preferences?.preferred_difficulty) {
+            setDifficulty(userSettings.quiz_preferences.preferred_difficulty);
+          }
+        } catch (_) {}
       } catch (err) {
         console.error('Failed to load curriculum courses for quiz:', err);
       }
@@ -133,7 +144,7 @@ export default function QuizPractice() {
   const handleStartQuiz = async () => {
     if (!selectedCourse || selectedCourse.num_chunks === 0) {
       showNotification(
-        `Cannot generate quiz: "${selectedCourse?.name || 'Selected course'}" contains 0 indexed chunks. Please upload course materials in the Knowledge Base first.`,
+        `Cannot generate quiz: "${selectedCourse?.name || 'Selected course'}" has no uploaded documents yet. Please add course materials in Knowledge Base first.`,
         'error'
       );
       return;
@@ -337,17 +348,17 @@ export default function QuizPractice() {
                 <div>
                   <div className="card-title">
                     <Sparkles size={18} color="var(--primary)" />
-                    Generate Course-Grounded Assessment
+                    Generate Practice Quiz
                   </div>
                   <div className="card-desc">
-                    Select a core academic course and target syllabus topics extracted from lecture notes
+                    Choose a course and target topics to practice and test your understanding.
                   </div>
                 </div>
               </div>
 
               {/* 1. Course Selection Cards */}
               <div className="input-group">
-                <label className="input-label">1. Select Curriculum Course ({subjects.length} Available Courses)</label>
+                <label className="input-label">1. Select Course ({subjects.length} Available)</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
                   {subjects.map((subj) => {
                     const isSelected = selectedSubjectId === subj.id;
@@ -369,8 +380,8 @@ export default function QuizPractice() {
                           <span className={`badge ${isSelected ? 'badge-primary' : 'badge-neutral'}`} style={{ fontSize: '0.7rem' }}>
                             {subj.code}
                           </span>
-                          <span style={{ fontSize: '0.65rem', color: subj.num_chunks > 0 ? 'var(--success)' : 'var(--text-muted)' }}>
-                            {subj.num_chunks || 0} chunks
+                          <span style={{ fontSize: '0.65rem', color: docCount > 0 ? 'var(--success)' : 'var(--text-muted)' }}>
+                            {docCount} {docCount === 1 ? 'doc' : 'docs'}
                           </span>
                         </div>
                         <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isSelected ? 'var(--primary)' : 'var(--text-main)', marginTop: '0.35rem' }}>
@@ -379,7 +390,7 @@ export default function QuizPractice() {
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={subj.document_filename}>
                           {docCount > 1
                             ? `📚 ${docCount} Materials`
-                            : `📄 ${subj.document_filename || subj.documents?.[0]?.filename || 'PDF'}`}
+                            : `📄 ${subj.document_filename || subj.documents?.[0]?.filename || 'Course PDF'}`}
                         </div>
                       </div>
                     );
@@ -413,10 +424,10 @@ export default function QuizPractice() {
                     className="input-field"
                     style={{ width: '100%' }}
                   >
-                    <option value="">All Course Materials ({selectedCourse.num_chunks} Chunks Aggregated)</option>
+                    <option value="">All Course Materials ({selectedCourse.documents?.length || 1} Documents)</option>
                     {selectedCourse.documents.map((d) => (
                       <option key={d.id} value={d.id}>
-                        {d.filename} ({d.num_chunks} chunks)
+                        {d.filename}
                       </option>
                     ))}
                   </select>
@@ -441,7 +452,7 @@ export default function QuizPractice() {
                 >
                   <AlertTriangle size={16} style={{ flexShrink: 0 }} />
                   <span>
-                    <strong>Material Not Indexed:</strong> "{selectedCourse.name}" has 0 indexed chunks. Please upload and index documents in the Knowledge Base before launching an assessment.
+                    <strong>Material Needed:</strong> "{selectedCourse.name}" has no course documents yet. Please upload materials in Knowledge Base to generate quizzes.
                   </span>
                 </div>
               )}
@@ -450,7 +461,7 @@ export default function QuizPractice() {
               {selectedCourse && (
                 <div className="input-group">
                   <label className="input-label">
-                    2. Select Syllabus Topic ({selectedCourse.name})
+                    2. Select Topic ({selectedCourse.name})
                   </label>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
                     {selectedCourse.topics && selectedCourse.topics.length > 0 ? (

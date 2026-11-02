@@ -7,11 +7,65 @@ from app.models.entities import (
     Student, Subject, LearningGoal, LearningActivity,
     Quiz, Question, QuizAttempt, QuizAnswer,
     KnowledgeDocument, DocumentChunk, Recommendation,
-    StudyPlan, StudyTask, Feedback
+    StudyPlan, StudyTask, Feedback, DocumentExplanation
 )
+
+def _run_schema_migrations(engine):
+    """Safe additive migrations on existing SQLite tables."""
+    try:
+        with engine.connect() as conn:
+            # 1. students table
+            stu_res = conn.exec_driver_sql("PRAGMA table_info(students)").fetchall()
+            stu_cols = [r[1] for r in stu_res]
+            if "role" not in stu_cols:
+                conn.exec_driver_sql("ALTER TABLE students ADD COLUMN role VARCHAR(50) DEFAULT 'student'")
+            if "status" not in stu_cols:
+                conn.exec_driver_sql("ALTER TABLE students ADD COLUMN status VARCHAR(50) DEFAULT 'active'")
+            if "is_admin" not in stu_cols:
+                conn.exec_driver_sql("ALTER TABLE students ADD COLUMN is_admin BOOLEAN DEFAULT 0")
+            if "custom_quota_bytes" not in stu_cols:
+                conn.exec_driver_sql("ALTER TABLE students ADD COLUMN custom_quota_bytes INTEGER")
+            if "last_login" not in stu_cols:
+                conn.exec_driver_sql("ALTER TABLE students ADD COLUMN last_login DATETIME")
+            if "settings_json" not in stu_cols:
+                conn.exec_driver_sql("ALTER TABLE students ADD COLUMN settings_json TEXT DEFAULT '{}'")
+
+            # 2. knowledge_documents table
+            res = conn.exec_driver_sql("PRAGMA table_info(knowledge_documents)").fetchall()
+            cols = [r[1] for r in res]
+            if "subject_id" not in cols:
+                conn.exec_driver_sql("ALTER TABLE knowledge_documents ADD COLUMN subject_id INTEGER")
+            if "extracted_topics" not in cols:
+                conn.exec_driver_sql("ALTER TABLE knowledge_documents ADD COLUMN extracted_topics TEXT DEFAULT '[]'")
+            if "is_course_material" not in cols:
+                conn.exec_driver_sql("ALTER TABLE knowledge_documents ADD COLUMN is_course_material BOOLEAN DEFAULT 0")
+
+            # 3. subjects table
+            s_res = conn.exec_driver_sql("PRAGMA table_info(subjects)").fetchall()
+            s_cols = [r[1] for r in s_res]
+            if "document_filename" not in s_cols:
+                conn.exec_driver_sql("ALTER TABLE subjects ADD COLUMN document_filename VARCHAR(255)")
+
+            # 4. feedbacks table
+            fb_res = conn.exec_driver_sql("PRAGMA table_info(feedbacks)").fetchall()
+            fb_cols = [r[1] for r in fb_res]
+            if "subject" not in fb_cols:
+                conn.exec_driver_sql("ALTER TABLE feedbacks ADD COLUMN subject VARCHAR(200) DEFAULT 'Platform Feedback'")
+            if "status" not in fb_cols:
+                conn.exec_driver_sql("ALTER TABLE feedbacks ADD COLUMN status VARCHAR(50) DEFAULT 'open'")
+            if "priority" not in fb_cols:
+                conn.exec_driver_sql("ALTER TABLE feedbacks ADD COLUMN priority VARCHAR(20) DEFAULT 'Normal'")
+            if "related_course" not in fb_cols:
+                conn.exec_driver_sql("ALTER TABLE feedbacks ADD COLUMN related_course VARCHAR(100)")
+            if "updated_at" not in fb_cols:
+                conn.exec_driver_sql("ALTER TABLE feedbacks ADD COLUMN updated_at DATETIME")
+            conn.commit()
+    except Exception as e:
+        print(f"[init_db] Column migration warning: {e}")
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _run_schema_migrations(engine)
     db = SessionLocal()
 
     try:
@@ -110,21 +164,43 @@ def init_db():
                 student.is_onboarded = True
                 db.commit()
 
-        # Safe column migration check
+
+
+        # Synchronize course material flags for shared course PDFs
         try:
-            with engine.connect() as conn:
-                res = conn.exec_driver_sql("PRAGMA table_info(knowledge_documents)").fetchall()
-                cols = [r[1] for r in res]
-                if "subject_id" not in cols:
-                    conn.exec_driver_sql("ALTER TABLE knowledge_documents ADD COLUMN subject_id INTEGER")
-                if "extracted_topics" not in cols:
-                    conn.exec_driver_sql("ALTER TABLE knowledge_documents ADD COLUMN extracted_topics TEXT DEFAULT '[]'")
-                s_res = conn.exec_driver_sql("PRAGMA table_info(subjects)").fetchall()
-                s_cols = [r[1] for r in s_res]
-                if "document_filename" not in s_cols:
-                    conn.exec_driver_sql("ALTER TABLE subjects ADD COLUMN document_filename VARCHAR(255)")
+            from app.models.entities import KnowledgeDocument
+            course_docs = db.query(KnowledgeDocument).all()
+            for cd in course_docs:
+                if "course_materials" in (cd.file_path or "").lower() or not cd.file_path or not ("uploads" in cd.file_path.lower()):
+                    if not cd.is_course_material:
+                        cd.is_course_material = True
+            # Synchronize admin status for configured admin emails
+            from app.core.config import settings
+            for admin_email in settings.ADMIN_EMAILS:
+                norm_email = admin_email.strip().lower()
+                st = db.query(Student).filter(Student.email == norm_email).first()
+                if st:
+                    st.is_admin = True
+                    st.role = "admin"
+                else:
+                    # Seed authorized administrator profile with default secure password hash
+                    admin_name = "Jagavi R" if "jagavi" in norm_email else "Platform Administrator"
+                    new_admin = Student(
+                        name=admin_name,
+                        email=norm_email,
+                        hashed_password=default_pwd_hash,
+                        auth_provider="local",
+                        role="admin",
+                        is_admin=True,
+                        is_onboarded=True,
+                        department="AI & Data Science (AI&DS)" if "jagavi" in norm_email else "System Administration",
+                        year="3rd Year" if "jagavi" in norm_email else "Staff",
+                        semester="6th Semester" if "jagavi" in norm_email else "Staff"
+                    )
+                    db.add(new_admin)
+            db.commit()
         except Exception as e:
-            print(f"[init_db] Column check: {e}")
+            print(f"[init_db] Course material / admin sync: {e}")
 
         # The 4 Core Academic Courses
         course_definitions = [
@@ -407,27 +483,79 @@ def sync_orphaned_documents(db: Session):
     from app.models.entities import KnowledgeDocument, Subject, DocumentChunk
     from app.retrieval.engine import retrieval_engine
 
-    # Ensure Big Data Analytics subject exists if any Big Data document is present
-    bd_doc = db.query(KnowledgeDocument).filter(
-        KnowledgeDocument.filename.ilike("%bd%") | KnowledgeDocument.filename.ilike("%big data%")
+    # Ensure Big Data Analytics subject exists
+    bd_subj = db.query(Subject).filter(
+        (Subject.name.ilike("%Big Data%")) | (Subject.code.ilike("22AI602"))
     ).first()
-    if bd_doc:
-        bd_subj = db.query(Subject).filter(
-            (Subject.name.ilike("%Big Data%")) | (Subject.code.ilike("22AI602"))
-        ).first()
-        if not bd_subj:
-            bd_subj = Subject(
-                code="22AI602",
-                name="Big Data Analytics",
-                document_filename=bd_doc.filename,
-                department="AI & Data Science (AI&DS)",
-                semester="6th Semester",
-                description="Big data architecture, 5 V's, Hadoop HDFS, MapReduce, Apache Spark, NoSQL data stores, and real-time streaming analytics.",
-                credits=4
-            )
-            db.add(bd_subj)
-            db.commit()
-            db.refresh(bd_subj)
+    if not bd_subj:
+        bd_subj = Subject(
+            id=5,
+            code="22AI602",
+            name="Big Data Analytics",
+            document_filename="BD U3.1.pdf",
+            department="AI & Data Science (AI&DS)",
+            semester="6th Semester",
+            description="Big data architecture, 5 V's, Hadoop HDFS, MapReduce, Apache Spark, NoSQL data stores, and real-time streaming analytics.",
+            credits=4
+        )
+        db.add(bd_subj)
+        db.commit()
+        db.refresh(bd_subj)
+
+    # Sync uploaded documents from data/uploads if not already indexed
+    root_dir = Path(__file__).resolve().parent.parent.parent.parent
+    uploads_dir = root_dir / "data" / "uploads"
+    if not uploads_dir.exists():
+        uploads_dir = Path("data/uploads").resolve()
+
+    if uploads_dir.exists():
+        # 1. BD U3.1.pdf
+        bd_file = next(uploads_dir.glob("*BD U3.1.pdf*"), None)
+        if bd_file and bd_file.is_file():
+            existing_bd = db.query(KnowledgeDocument).filter(
+                (KnowledgeDocument.filename == "BD U3.1.pdf") |
+                (KnowledgeDocument.file_path == str(bd_file))
+            ).first()
+            if not existing_bd:
+                try:
+                    doc = retrieval_engine.process_and_store_document(
+                        db=db,
+                        student_id=1,
+                        filename="BD U3.1.pdf",
+                        file_path=bd_file,
+                        file_size=bd_file.stat().st_size,
+                        file_type="pdf",
+                        subject_id=bd_subj.id
+                    )
+                    doc.is_course_material = False
+                    db.commit()
+                    print(f"[sync_orphaned_documents] Indexed Big Data upload: {bd_file.name} ({doc.num_chunks} chunks)")
+                except Exception as e:
+                    print(f"[sync_orphaned_documents] Error indexing BD U3.1.pdf: {e}")
+
+        # 2. ML U2.1.pdf
+        ml2_file = next(uploads_dir.glob("*ML U2.1.pdf*"), None)
+        if ml2_file and ml2_file.is_file():
+            existing_ml2 = db.query(KnowledgeDocument).filter(
+                (KnowledgeDocument.filename == "ML U2.1.pdf") |
+                (KnowledgeDocument.file_path == str(ml2_file))
+            ).first()
+            if not existing_ml2:
+                try:
+                    doc = retrieval_engine.process_and_store_document(
+                        db=db,
+                        student_id=1,
+                        filename="ML U2.1.pdf",
+                        file_path=ml2_file,
+                        file_size=ml2_file.stat().st_size,
+                        file_type="pdf",
+                        subject_id=1
+                    )
+                    doc.is_course_material = False
+                    db.commit()
+                    print(f"[sync_orphaned_documents] Indexed ML U2 upload: {ml2_file.name} ({doc.num_chunks} chunks)")
+                except Exception as e:
+                    print(f"[sync_orphaned_documents] Error indexing ML U2.1.pdf: {e}")
 
     # Link orphaned documents to existing or newly created subjects
     orphaned_docs = db.query(KnowledgeDocument).filter(KnowledgeDocument.subject_id.is_(None)).all()

@@ -25,8 +25,73 @@ class Student(Base):
     preferred_learning_style = Column(String(50), default="Visual & Practical")
     areas_of_interest = Column(Text, default="[]")   # JSON list: ["Artificial Intelligence", "Deep Learning", "Algorithms"]
     current_skill_level = Column(String(50), default="Intermediate")
+    role = Column(String(50), default="student") # "student", "admin"
+    status = Column(String(50), default="active") # "active", "suspended"
+    is_admin = Column(Boolean, default=False)
+    custom_quota_bytes = Column(Integer, nullable=True) # Per-user custom quota in bytes; None uses default
+    last_login = Column(DateTime, nullable=True)
+    settings_json = Column(Text, default="{}")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    @property
+    def settings(self) -> dict:
+        import json
+        defaults = {
+            "learning_preferences": {
+                "preferred_learning_style": self.preferred_learning_style or "Visual",
+                "explanation_level": "Detailed",
+                "preferred_answer_format": "Step-by-step",
+                "preferred_language": "English",
+                "study_pace": "Moderate"
+            },
+            "ai_tutor_preferences": {
+                "voice_enabled": False,
+                "explanation_verbosity": "Detailed",
+                "include_examples": True,
+                "show_pdf_citations": True,
+                "enable_followup_suggestions": True
+            },
+            "quiz_preferences": {
+                "default_num_questions": 5,
+                "preferred_difficulty": "Medium",
+                "preferred_question_type": "MCQ",
+                "show_explanations": True,
+                "enable_timer": False
+            },
+            "notifications": {
+                "learning_reminders": True,
+                "study_goal_reminders": True,
+                "quiz_results": True,
+                "learning_recommendations": True,
+                "feedback_replies": True,
+                "platform_announcements": True
+            },
+            "accessibility": {
+                "font_size": "Medium",
+                "reduced_motion": False,
+                "high_contrast_focus": True
+            }
+        }
+        if not self.settings_json:
+            return defaults
+        try:
+            stored = json.loads(self.settings_json)
+            if not isinstance(stored, dict):
+                return defaults
+            for section, vals in stored.items():
+                if section in defaults and isinstance(vals, dict):
+                    defaults[section].update(vals)
+                else:
+                    defaults[section] = vals
+            return defaults
+        except Exception:
+            return defaults
+
+    @property
+    def is_admin_user(self) -> bool:
+        from app.core.config import settings
+        return settings.is_admin_email(self.email) or bool(self.is_admin) or self.role == "admin"
 
     # Relationships
     goals = relationship("LearningGoal", back_populates="student", cascade="all, delete-orphan")
@@ -38,6 +103,9 @@ class Student(Base):
     recommendations = relationship("Recommendation", back_populates="student", cascade="all, delete-orphan")
     study_plans = relationship("StudyPlan", back_populates="student", cascade="all, delete-orphan")
     feedbacks = relationship("Feedback", back_populates="student", cascade="all, delete-orphan")
+    storage_warnings = relationship("StorageWarning", back_populates="student", cascade="all, delete-orphan")
+    notifications = relationship("Notification", back_populates="student", cascade="all, delete-orphan")
+    cleanup_logs = relationship("StorageCleanupLog", back_populates="student", cascade="all, delete-orphan")
 
 class Subject(Base):
     __tablename__ = "subjects"
@@ -199,11 +267,17 @@ class KnowledgeDocument(Base):
     num_chunks = Column(Integer, default=0)
     status = Column(String(50), default="processed") # "processing", "processed", "failed", "empty"
     extracted_topics = Column(Text, default="[]")
+    is_course_material = Column(Boolean, default=False)
     upload_date = Column(DateTime, default=datetime.datetime.utcnow)
 
     student = relationship("Student", back_populates="documents")
     subject = relationship("Subject", back_populates="documents")
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
+    explanations = relationship("DocumentExplanation", back_populates="document", cascade="all, delete-orphan")
+
+    @property
+    def is_user_upload(self) -> bool:
+        return not self.is_course_material and ("course_materials" not in (self.file_path or ""))
 
     @property
     def course_name(self) -> Optional[str]:
@@ -306,9 +380,112 @@ class Feedback(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
-    rating = Column(Integer, default=5)
+    subject = Column(String(200), default="Platform Feedback")
     category = Column(String(100), default="General Experience")
+    priority = Column(String(20), default="Normal") # "Low", "Normal", "High"
+    related_course = Column(String(100), nullable=True)
+    rating = Column(Integer, default=5)
     comment = Column(Text, default="")
+    status = Column(String(50), default="open") # "open", "in_progress", "awaiting_student", "awaiting_admin", "resolved", "reopened"
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     student = relationship("Student", back_populates="feedbacks")
+    replies = relationship("FeedbackReply", back_populates="feedback", cascade="all, delete-orphan", order_by="FeedbackReply.created_at")
+
+class FeedbackReply(Base):
+    __tablename__ = "feedback_replies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    feedback_id = Column(Integer, ForeignKey("feedbacks.id"), nullable=False, index=True)
+    sender_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    sender_role = Column(String(20), default="student") # "admin", "student"
+    sender_name = Column(String(100), default="User")
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    feedback = relationship("Feedback", back_populates="replies")
+    sender = relationship("Student")
+
+class StorageWarning(Base):
+    __tablename__ = "storage_warnings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
+    start_time = Column(DateTime, default=datetime.datetime.utcnow)
+    deadline = Column(DateTime, nullable=False) # e.g. start_time + 30 days
+    status = Column(String(50), default="active") # "active", "resolved", "cleanup_executed", "cancelled"
+    reason = Column(String(255), default="Storage quota exceeded")
+    current_usage_bytes = Column(Integer, default=0)
+    quota_bytes = Column(Integer, default=0)
+    reminders_sent_count = Column(Integer, default=0)
+    last_reminder_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    resolved_at = Column(DateTime, nullable=True)
+
+    student = relationship("Student", back_populates="storage_warnings")
+
+class StorageCleanupLog(Base):
+    __tablename__ = "storage_cleanup_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
+    trigger_type = Column(String(50), default="scheduled") # "scheduled", "manual_admin", "dry_run"
+    is_dry_run = Column(Boolean, default=False)
+    status = Column(String(50), default="success") # "success", "failed", "no_action_needed"
+    files_deleted_count = Column(Integer, default=0)
+    bytes_reclaimed = Column(Integer, default=0)
+    deleted_files_json = Column(Text, default="[]")
+    error_message = Column(Text, nullable=True)
+    executed_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    student = relationship("Student", back_populates="cleanup_logs")
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
+    type = Column(String(50), default="account_notice") # storage_approaching, storage_exceeded, cleanup_warning, cleanup_executed, cleanup_cancelled, feedback_reply, account_notice
+    title = Column(String(200), nullable=False)
+    message = Column(Text, nullable=False)
+    link = Column(String(200), default="")
+    is_read = Column(Boolean, default=False, index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+    student = relationship("Student", back_populates="notifications")
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    admin_id = Column(Integer, ForeignKey("students.id"), nullable=True)
+    admin_email = Column(String(100), nullable=False, index=True)
+    action = Column(String(100), nullable=False, index=True) # admin_login, quota_updated, storage_warning_created, cleanup_dry_run, cleanup_executed, feedback_reply, feedback_status_changed, user_updated
+    target_type = Column(String(100), nullable=False) # user, quota, storage, feedback, system
+    target_id = Column(String(100), nullable=True)
+    details_json = Column(Text, default="{}")
+    ip_address = Column(String(50), nullable=True)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+    admin = relationship("Student")
+
+class DocumentExplanation(Base):
+    __tablename__ = "document_explanations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("knowledge_documents.id"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
+    mode = Column(String(50), nullable=False) # "complete" or "topic"
+    topic_title = Column(String(255), nullable=True) # None for complete, specific topic name for topic
+    content = Column(Text, nullable=False) # Structured markdown explanation text
+    outline_json = Column(Text, nullable=True) # JSON outline topics
+    sections_json = Column(Text, nullable=True) # JSON sections breakdown
+    citations_json = Column(Text, nullable=True) # JSON citations list: [{"page_number": X, "filename": "...", "snippet": "..."}]
+    provider = Column(String(100), default="Gemini 1.5 Flash")
+    total_pages = Column(Integer, default=1)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    document = relationship("KnowledgeDocument", back_populates="explanations")
+    student = relationship("Student")
